@@ -1,0 +1,99 @@
+@startuml ESLアプリサーバシーケンス図
+skinparam Monochrome true
+hide footbox
+
+actor "ユーザ" as user
+participant "クライアントアプリ" as cltapp
+participant "AWS Lambda" as aws_lambda
+participant "AWS S3" as aws_s3
+database "hash-table\n画像ID⇔画像URLの紐づけ\n(AWS S3保存)" as hash_table
+database "画像ファイル\n(AWS S3保存)" as imageDatas
+participant "Epaper SDKサーバ" as sdksrv
+participant "Epaper端末" as epaper
+
+== AWS Lambda コールドスタート ==
+note over aws_lambda, imageDatas
+    ※S3へのアクセス設定はLambda側で設定済みとする
+end note
+[->>aws_lambda ++ : コールドスタート
+aws_lambda -> hash_table : 取得
+aws_lambda <-- hash_table
+aws_lambda -> aws_lambda : 内部変数(hash-table)更新
+[<<--aws_lambda --
+
+== 配信用画像をサーバに登録 ==
+user ->> cltapp ++ : カメラ撮影 or\nアルバムから選択 or\nトリミング画像を選択
+cltapp -> aws_lambda ++ : 署名付きURL取得\n(アップロード対象画像ファイルパスリスト)
+
+note over aws_lambda, imageDatas
+    ※S3へのアクセス設定はlambda側で設定済みとする
+end note
+loop アップロード対象画像ファイルパスリストの要素数
+    aws_lambda -> aws_s3 ++ : 署名付きURL取得\n(画像ファイルパス)
+    aws_lambda <-- aws_s3 -- : 署名付きURL取得 応答\n(署名付きURL)
+end
+cltapp <-- aws_lambda -- : 署名付きURL取得 応答\n(ステータスコード, 画像ファイルパスに対応する署名付きURLリスト)
+
+opt 署名付きURL取得 応答が正常
+    loop 追加登録画像数
+        cltapp -> imageDatas : ファイルアップロード\n(画像ファイル ※リサイズ済)
+    end
+end
+user <<-- cltapp --
+note over user
+    * 画像登録
+    * 画像一覧表示
+    * 画像配信
+    のいずれかに遷移
+end note
+
+aws_s3 ->> aws_lambda ++ : ファイルアップロードイベント()
+aws_lambda -> aws_s3 ++ : フォルダ内ファイル名一覧取得\n()
+aws_lambda <-- aws_s3 -- : フォルダ内ファイル名一覧取得 応答\n(フォルダ内ファイル名一覧)
+loop S3フォルダ内ファイル数
+    opt 内部変数(hash-table)に画像ファイルパスが無い
+        aws_lambda -> aws_lambda : 内部変数(hash-table)更新
+    end
+end
+deactivate aws_lambda
+aws_lambda -> hash_table : DB更新
+
+
+== 配信用画像を一覧表示 ==
+user ->> cltapp ++ : サムネ画像表示画面遷移
+cltapp -> aws_lambda ++ : 画像リスト要求\n()
+cltapp <-- aws_lambda -- : 画像リスト要求 応答\n(ステータスコード, 画像IDに対応する画像URLリスト)
+loop 画像IDに対応する画像URLリスト要素数
+    cltapp -> imageDatas ++ : 画像取得\n()
+    cltapp <-- imageDatas -- : 画像取得 応答\n(画像ファイル)
+end
+cltapp -> cltapp : 画像サムネ表示
+user <<-- cltapp --
+
+
+== 画像配信 ==
+note over cltapp, epaper
+    ※iPhone ⇔ Epaper端末はBT接続済みとする
+end note
+user ->> cltapp ++ : 画像配信
+cltapp -> sdksrv ++ : 画像配信要求\n(画像ID)
+sdksrv -> aws_lambda ++ : 画像要求\n(画像ID)
+sdksrv <-- aws_lambda -- : 画像要求 応答\n(画像URL)
+sdksrv -> sdksrv : 配信画像準備
+cltapp <-- sdksrv -- : 画像配信要求 応答\n(Epaper画像フォーマット)
+par
+    opt "画像変換成功"
+        cltapp -> epaper ++ : 画像配信\n(Epaper画像フォーマット)
+        epaper -> epaper -- : 画像表示
+    end
+else
+    cltapp ->> aws_lambda ++ : 画像情報更新\n(ID, 画像変換結果)
+    user <<-- cltapp --
+    critical hash-table更新
+        aws_lambda -> aws_lambda : 内部変数(hash-table)更新
+        aws_lambda -> hash_table : DB更新
+    end
+    deactivate aws_lambda
+end
+
+@enduml
