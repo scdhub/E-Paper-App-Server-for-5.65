@@ -1,0 +1,55 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: 5.65Epaper-app-server-api
+
+Parameters:
+  AwsS3Bucket:
+    Type: String
+    Default: 5.65-epaper-app-serever-assets
+    Description: 画像アップロード/ダウンロード先S3バケット名
+
+Resources:
+  # ルーティング処理関数
+  TargetFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./
+      Handler: app.lambda_handler
+      Runtime: python3.12
+      Policies:
+        # S3アクセス許可
+        - S3CrudPolicy:
+            BucketName: !Sub ${AwsS3Bucket}
+      Environment:
+        Variables:
+          AWS_S3_BUCKET: !Sub ${AwsS3Bucket}
+          LOG_LEVEL: 10
+
+  # ルーティング処理関数のURL
+  TargetFunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      AuthType: NONE
+      TargetFunctionArn: !Sub ${TargetFunction.Arn}
+
+  # ルーティング処理関数の使用許可
+  TargetFunctionUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunctionUrl
+      FunctionName: !Sub ${TargetFunction.Arn}
+      FunctionUrlAuthType: NONE
+      Principal: "*"
+
+  # ロググループ
+  FunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${TargetFunction}
+      RetentionInDays: 3653
+
+Outputs:
+  FunctionUrl:
+    Value: !Sub ${TargetFunctionUrl.FunctionUrl}
+    Export:
+      Name: TargetFunctionUrl

@@ -1,0 +1,10 @@
+version = 0.1
+[default.deploy.parameters]
+stack_name = "Epaper-apl-server-apim"
+resolve_s3 = true
+s3_prefix = "Epaper-apl-server-apim"
+region = "ap-northeast-1"
+confirm_changeset = false
+capabilities = "CAPABILITY_IAM"
+disable_rollback = true
+image_repositories = []
