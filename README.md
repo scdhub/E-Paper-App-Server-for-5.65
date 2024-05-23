@@ -326,13 +326,32 @@ HTTPステータスコード : `200 OK`</br>
 <p align="right">(<a href="#top">トップへ</a>)</p>
 
 ## トラブルシューティング
-### 画像アップロード/ダウンロード先S3バケット名を変更したい
-src\samconfig.toml ファイルに下記設定を追加する。
+### 各種設定を変更したい
+src\samconfig.toml ファイルに下記設定を追加する。</br>
 ```src\samconfig.toml:toml
 [default.deploy.parameters]
 (略)
-parameter_overrides="AwsS3Bucket=(S3バケット名を設定)"
+parameter_overrides="StageName=(デプロイするステージ名) AwsS3Bucket=(画像アップロード/ダウンロード先S3バケット名) ApiKeyName=(APIキー名) LogLevel=(ログ出力レベル(0以下または数値以外:出力しない))"
 ```
+※ルートフォルダでコマンドラインを起動し、python仮想環境を起動した上で下記のコマンドを実行することでも設定の変更が行える。
+```dos
+cd src
+sam deploy --guided
+```
+※設定を変更しない場合は、項目自体を削除する。</br>
+　ex:ログ出力レベルの設定だけを変更したい場合
+```src\samconfig.toml:toml
+[default.deploy.parameters]
+(略)
+parameter_overrides="LogLevel=(ログ出力レベル(0以下または数値以外:出力しない))"
+```
+各種設定項目は下記のとおりである。</br>
+| 項目名 | 設定内容 | デフォルト値 |
+| :--- | :--- | :--- |
+| StageName | ステージ名 | dev |
+| AwsS3Bucket | 画像アップロード/ダウンロード先S3バケット名 | 5.65-epaper-app-serever-assets |
+| ApiKeyName | APIキー名 | RestApiKey |
+| LogLevel | ログ出力レベル</br>(0以下または数値以外:出力しない) | 10 |
 
 ### デプロイに失敗する
 - srcフォルダ以下に余分なファイルが存在していないか確認し、存在していた場合は余分なファイルを削除してからデプロイを実行する。</br>
