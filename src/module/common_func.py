@@ -76,6 +76,10 @@ class cCommonFunc():
     """API応答内容の"id"キー名
     """
 
+    API_RESP_DICT_KEY_LAST_MODIFIED = 'last_modified'
+    """API応答内容の"最終更新日時"キー名
+    """
+
     API_RESP_DICT_KEY_CONVERTIBLE = 'convertible'
     """API応答内容の"画像フォーマット変換状態"キー名
     """

@@ -1,4 +1,4 @@
-from aws_lambda_powertools.event_handler import LambdaFunctionUrlResolver
+from aws_lambda_powertools.event_handler import APIGatewayRestResolver
 from http import HTTPStatus
 from module.aws_mng import cAwsAccessMng
 from module.common_func import cCommonFunc
@@ -8,7 +8,7 @@ from module.logger_wrapper import cLoggerWrapper
 ENV_MNG = cEnvMng()
 LOGGER_WRAPPER:cLoggerWrapper = cLoggerWrapper(LEVEL=ENV_MNG.LOG_LEVEL)
 AWS_MNG = cAwsAccessMng(REGION_NAME=ENV_MNG.AWS_REGION, S3_BUCKET=ENV_MNG.AWS_S3_BUCKET, LOGGER_WRAPPER=LOGGER_WRAPPER)
-app = LambdaFunctionUrlResolver()
+app = APIGatewayRestResolver()
 AWS_MNG.initialize()
 
 @app.post("/signed_url")
@@ -118,7 +118,5 @@ def lambda_handler(event, context) -> dict[str, type]:
     Returns:
         dict[str, type]: _description_
     """
-    LOGGER_WRAPPER.output(MSG=f'event:{event}, context:{context}', PREFIX='::Enter') # TODO:後で消す
     RESULT = app.resolve(event, context)
-    LOGGER_WRAPPER.output(MSG=f'event:{event}, context:{context}, RESULT:{RESULT}', PREFIX='::Leave') # TODO:後で消す
     return RESULT

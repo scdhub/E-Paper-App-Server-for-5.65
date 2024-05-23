@@ -13,6 +13,7 @@ import os.path as path
 
 from botocore.client import Config
 from botocore.exceptions import ClientError
+from datetime import datetime
 from http import HTTPStatus
 from module.common_func import *
 from module.logger_wrapper import cLoggerWrapper
@@ -212,14 +213,14 @@ class cAwsAccessMng:
             int: httpステータスコード
         """
         self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>', PREFIX='::Enter')
-        S3_IMAGE_FILE_PATHS:list[str] = []
+        S3_IMAGE_FILE_PATHS:list[dict] = []
         # AWS S3内画像ファイルパス一覧取得 →　S3_IMAGE_FILE_PATHSに設定
         ret_value = self._get_s3_file_lists(API_RESULT_DATAS=API_RESULT_DATAS, IMAGE_FILE_PATHS=S3_IMAGE_FILE_PATHS)
 
         # AWS S3内画像ファイルパス一覧取得成功
         if ret_value == HTTPStatus.OK:
             # hash-tableリストにテーブル追加
-            ret_value = self._append_hash_tables_from_s3(API_RESULT_DATAS=API_RESULT_DATAS, S3_IMAGE_FILE_PATHS=S3_IMAGE_FILE_PATHS)
+            ret_value = self._append_hash_tables_from_s3(API_RESULT_DATAS=API_RESULT_DATAS, S3_IMAGE_FILE_PATH_DICTS=S3_IMAGE_FILE_PATHS)
 
         # テーブル追加成功
         if ret_value == HTTPStatus.OK:
@@ -249,7 +250,8 @@ class cAwsAccessMng:
                 for TABLE in self.ImageUrlHashTables:
                     URL:str = TABLE.get(cCommonFunc.API_RESP_DICT_KEY_URL, '')
                     CONVERTIBLE:eImageConvertibleKind = TABLE.get(cCommonFunc.API_RESP_DICT_KEY_CONVERTIBLE, eImageConvertibleKind.UNDETERMINED)
-                    DATAS.append({cCommonFunc.API_RESP_DICT_KEY_ID:TABLE.get(cCommonFunc.API_RESP_DICT_KEY_ID, ''), cCommonFunc.API_RESP_DICT_KEY_URL:self._get_signed_url(S3_CLIENT=self.S3_CLIENT, CLIENT_METHOD='get_object', EXPIRATION=EXPIRATION, OBJECT_KEY=URL), cCommonFunc.API_RESP_DICT_KEY_CONVERTIBLE:eImageConvertibleKind.get_name_from_value(VALUE=CONVERTIBLE)})
+                    DATAS.append({cCommonFunc.API_RESP_DICT_KEY_ID:TABLE.get(cCommonFunc.API_RESP_DICT_KEY_ID, ''), cCommonFunc.API_RESP_DICT_KEY_URL:self._get_signed_url(S3_CLIENT=self.S3_CLIENT, CLIENT_METHOD='get_object', EXPIRATION=EXPIRATION, OBJECT_KEY=URL), cCommonFunc.API_RESP_DICT_KEY_LAST_MODIFIED:TABLE.get(cCommonFunc.API_RESP_DICT_KEY_LAST_MODIFIED, ""), cCommonFunc.API_RESP_DICT_KEY_CONVERTIBLE:eImageConvertibleKind.get_name_from_value(VALUE=CONVERTIBLE)})
+                self.LOGGER_WRAPPER.output(MSG=f'DATAS:{DATAS}', PREFIX='::Debug') # TODO:後で消す
             except Exception as e:
                 ret_value = HTTPStatus.INTERNAL_SERVER_ERROR
                 # 例外内容をAPI処理結果詳細に設定
@@ -426,14 +428,12 @@ class cAwsAccessMng:
                 IMAGE_FILE_PATHS.clear()
                 # S3内のファイル一覧を取得
                 OBJECTS = self.S3_CLIENT.list_objects(Bucket=self.S3_BUCKET_NAME, Prefix=self.S3_PREFIX)
-                self.LOGGER_WRAPPER.output(MSG=f'OBJECTS:{OBJECTS}', PREFIX='::Debug1') # TODO:後で消す
-                if 'CommonPrefixes' in OBJECTS:
-                    IMAGE_FILE_PATHS.extend([content['Prefix'] for content in OBJECTS['CommonPrefixes']])
+                self.LOGGER_WRAPPER.output(MSG=f'OBJECTS:{OBJECTS}', PREFIX='::Debug') # TODO:後で消す
                 if 'Contents' in OBJECTS:
-                    for content in OBJECTS['Contents']:
-                        if 'Key' in content and content['Size'] > 0:
-                            IMAGE_FILE_PATHS.append(content['Key'])
-                self.LOGGER_WRAPPER.output(MSG=f'IMAGE_FILE_PATHS:{IMAGE_FILE_PATHS}', PREFIX='::Debug2') # TODO:後で消す
+                    for CONTENT in OBJECTS['Contents']:
+                        if 'Key' in CONTENT and CONTENT['Size'] > 0:
+                            IMAGE_FILE_PATHS.append({cCommonFunc.API_RESP_DICT_KEY_URL:CONTENT['Key'], cCommonFunc.API_RESP_DICT_KEY_LAST_MODIFIED:CONTENT.get("LastModified", "")})
+                self.LOGGER_WRAPPER.output(MSG=f'IMAGE_FILE_PATHS:{IMAGE_FILE_PATHS}', PREFIX='::Debug') # TODO:後で消す
             except Exception as e:
                 ret_value = HTTPStatus.INTERNAL_SERVER_ERROR
                 # 例外内容をAPI処理結果詳細に設定
@@ -442,22 +442,24 @@ class cAwsAccessMng:
         self.LOGGER_WRAPPER.output(MSG=f'len(IMAGE_FILE_PATHS):{len(IMAGE_FILE_PATHS)}, ret_value:{ret_value}', PREFIX='::Leave')
         return ret_value
 
-    def _append_hash_tables_from_s3(self, API_RESULT_DATAS:dict[str, str], S3_IMAGE_FILE_PATHS:list[str]) -> int:
+    def _append_hash_tables_from_s3(self, API_RESULT_DATAS:dict[str, str], S3_IMAGE_FILE_PATH_DICTS:list[dict]) -> int:
         """画像ID・画像変換状態・画像URLのhash-tableリストにS3画像ファイルパスからテーブルを追加
 
         Args:
             API_RESULT_DATAS (dict[str, str]): API応答内容dict
-            S3_IMAGE_FILE_PATHS (list[str]): AWS S3内画像ファイルパスリスト
+            S3_IMAGE_FILE_PATHS (list[dict]): AWS S3内画像ファイルパスと最終更新日時リスト
 
         Returns:
             int: httpステータスコード
         """
-        ret_value = HTTPStatus.OK if not self.ImageUrlHashTables is None and not S3_IMAGE_FILE_PATHS is None else HTTPStatus.INTERNAL_SERVER_ERROR
+        ret_value = HTTPStatus.OK if not self.ImageUrlHashTables is None and not S3_IMAGE_FILE_PATH_DICTS is None else HTTPStatus.INTERNAL_SERVER_ERROR
 
         # 引数正常
         if ret_value == HTTPStatus.OK:
             try:
-                for FILE_PATH in S3_IMAGE_FILE_PATHS:
+                for FILE_PATH_DICT in S3_IMAGE_FILE_PATH_DICTS:
+                    FILE_PATH:str = FILE_PATH_DICT.get(cCommonFunc.API_RESP_DICT_KEY_URL, "")
+                    LAST_MODIFIED = FILE_PATH_DICT.get(cCommonFunc.API_RESP_DICT_KEY_LAST_MODIFIED, datetime.min)
                     # hash-tableに存在しない画像ファイルパスの場合
                     if not self._is_exist_value_in_hash_table(KEY=cCommonFunc.API_RESP_DICT_KEY_URL, DST_VALUE=FILE_PATH):
                         TABLE:dict[str, str] = {}
@@ -465,15 +467,17 @@ class cAwsAccessMng:
                         # ID:ファイル名(※署名付きURL取得時にuuid4によるユニークIDが付与されており、S3アップロード時にユニークIDは既に存在する)
                         TABLE[cCommonFunc.API_RESP_DICT_KEY_ID] = path.splitext(FILE_BASE_NAME)[0]
                         TABLE[cCommonFunc.API_RESP_DICT_KEY_URL] = FILE_PATH
+                        TABLE[cCommonFunc.API_RESP_DICT_KEY_LAST_MODIFIED] = LAST_MODIFIED.strftime("%Y/%m/%d %H:%M:%S.%f")[:-3]
                         TABLE[cCommonFunc.API_RESP_DICT_KEY_CONVERTIBLE] = eImageConvertibleKind.UNDETERMINED
+                        self.LOGGER_WRAPPER.output(MSG=f'TABLE:{TABLE}', PREFIX="::Debug") # TODO:後で消す
                         self.ImageUrlHashTables.append(TABLE)
             except Exception as e:
                 ret_value = HTTPStatus.INTERNAL_SERVER_ERROR
                 # 例外内容をAPI処理結果詳細に設定
                 cCommonFunc.set_api_resp_str_msg(API_RESULT_DATAS=API_RESULT_DATAS, VALUE=f'{type(e).__name__}, {e}')
-                self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, len(API_RESULT_DATAS):{-1 if API_RESULT_DATAS is None else len(API_RESULT_DATAS)}, len(S3_IMAGE_FILE_PATHS):{-1 if S3_IMAGE_FILE_PATHS is None else len(S3_IMAGE_FILE_PATHS)}, {type(e).__name__}! {e}', LEVEL=logging.WARN)
+                self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, len(API_RESULT_DATAS):{-1 if API_RESULT_DATAS is None else len(API_RESULT_DATAS)}, len(S3_IMAGE_FILE_PATHS):{-1 if S3_IMAGE_FILE_PATH_DICTS is None else len(S3_IMAGE_FILE_PATH_DICTS)}, {type(e).__name__}! {e}', LEVEL=logging.WARN)
         else:
-            cCommonFunc.set_api_resp_str_msg(API_RESULT_DATAS=API_RESULT_DATAS, VALUE=f'hash-tables is None or parameter is invalid!\n, len(S3_IMAGE_FILE_PATHS):{-1 if S3_IMAGE_FILE_PATHS is None else len(S3_IMAGE_FILE_PATHS)}')
+            cCommonFunc.set_api_resp_str_msg(API_RESULT_DATAS=API_RESULT_DATAS, VALUE=f'hash-tables is None or parameter is invalid!\n, len(S3_IMAGE_FILE_PATHS):{-1 if S3_IMAGE_FILE_PATH_DICTS is None else len(S3_IMAGE_FILE_PATH_DICTS)}')
 
         return ret_value
 

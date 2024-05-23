@@ -10,7 +10,7 @@ Parameters:
 
 Resources:
   # ルーティング処理関数
-  TargetFunction:
+  ApiLambdaFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: ./
@@ -24,32 +24,25 @@ Resources:
         Variables:
           AWS_S3_BUCKET: !Sub ${AwsS3Bucket}
           LOG_LEVEL: 10
-
-  # ルーティング処理関数のURL
-  TargetFunctionUrl:
-    Type: AWS::Lambda::Url
-    Properties:
-      AuthType: NONE
-      TargetFunctionArn: !Sub ${TargetFunction.Arn}
-
-  # ルーティング処理関数の使用許可
-  TargetFunctionUrlPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunctionUrl
-      FunctionName: !Sub ${TargetFunction.Arn}
-      FunctionUrlAuthType: NONE
-      Principal: "*"
+      Events:
+        ApiRoot:
+          Type: Api
+          Properties:
+            Path: '/'
+            Method: ANY
+        ApiProxy:
+          Type: Api
+          Properties:
+            Path: '/{proxy+}'
+            Method: ANY
 
   # ロググループ
   FunctionLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub /aws/lambda/${TargetFunction}
-      RetentionInDays: 3653
+      LogGroupName: !Sub /aws/lambda/${ApiLambdaFunction}
+      RetentionInDays: 30
 
 Outputs:
   FunctionUrl:
-    Value: !Sub ${TargetFunctionUrl.FunctionUrl}
-    Export:
-      Name: TargetFunctionUrl
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
