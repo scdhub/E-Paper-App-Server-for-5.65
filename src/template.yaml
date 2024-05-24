@@ -3,14 +3,36 @@ Transform: AWS::Serverless-2016-10-31
 Description: 5.65Epaper-app-server-api
 
 Parameters:
+  StageName:
+    Type: String
+    Default: dev
+    Description: ステージ名
   AwsS3Bucket:
     Type: String
     Default: 5.65-epaper-app-serever-assets
     Description: 画像アップロード/ダウンロード先S3バケット名
+  ApiKeyName:
+    Type: String
+    Default: RestApiKey
+    Description: APIキー名
+  LogLevel:
+    Type: String
+    Default: "10"
+    Description: ログ出力レベル(0以下または数値以外:出力しない)
 
 Resources:
+  # AmazonAPIGatewayリソースとメソッドのコレクション
+  ApiGatewayRestApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      # APIGatewayがURIの呼び出しの最初のパスセグメントとして使用するステージの名前。
+      StageName: !Sub ${StageName}
+      Auth:
+        # APIキーを必須にする
+        ApiKeyRequired: true
+
   # ルーティング処理関数
-  TargetFunction:
+  ApiLambdaFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: ./
@@ -23,33 +45,66 @@ Resources:
       Environment:
         Variables:
           AWS_S3_BUCKET: !Sub ${AwsS3Bucket}
-          LOG_LEVEL: 10
+          LOG_LEVEL: !Sub ${LogLevel}
+      Events:
+        ApiProxy:
+          Type: Api
+          Properties:
+            Path: '/{proxy+}'
+            Method: ANY
+            RestApiId: !Ref ApiGatewayRestApi
 
-  # ルーティング処理関数のURL
-  TargetFunctionUrl:
-    Type: AWS::Lambda::Url
+  # APIキー
+  RestApiKey:
+    Type: AWS::ApiGateway::ApiKey
+    # APIステージデプロイが実行された後に作成を行うようにする
+    DependsOn:
+      - ApiGatewayRestApi
+      - ApiGatewayRestApiStage
     Properties:
-      AuthType: NONE
-      TargetFunctionArn: !Sub ${TargetFunction.Arn}
+      Enabled: true
+      Name: !Sub ${ApiKeyName}
+      StageKeys:
+        - RestApiId: !Ref ApiGatewayRestApi
+          StageName: !Sub ${StageName}
 
-  # ルーティング処理関数の使用許可
-  TargetFunctionUrlPermission:
-    Type: AWS::Lambda::Permission
+  # UsagePlan(APIのリクエスト制限)
+  ApiUsagePlan:
+    Type: AWS::ApiGateway::UsagePlan
+    # APIキーおよびAPIステージデプロイが実行された後に作成を行うようにする
+    DependsOn:
+      - RestApiKey
+      - ApiGatewayRestApi
+      - ApiGatewayRestApiStage
     Properties:
-      Action: lambda:InvokeFunctionUrl
-      FunctionName: !Sub ${TargetFunction.Arn}
-      FunctionUrlAuthType: NONE
-      Principal: "*"
+      ApiStages:
+        - ApiId: !Ref ApiGatewayRestApi
+          Stage: !Sub ${StageName}
+      Throttle:
+        # APIに対して同時に実行できるリクエスト数
+        BurstLimit: 200
+        # API呼び出しレートの1秒あたりのリクエスト数
+        RateLimit: 100
+      UsagePlanName: '5.65-epaper-api-plan'
+
+  # UsagePlanKey(APIキーとUsagePlanの紐づけ)
+  ApiUsagePlanKey:
+    Type: AWS::ApiGateway::UsagePlanKey
+    DependsOn:
+      - ApiUsagePlan
+    Properties:
+      KeyId: !Ref RestApiKey
+      KeyType: API_KEY
+      UsagePlanId: !Ref ApiUsagePlan
 
   # ロググループ
   FunctionLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub /aws/lambda/${TargetFunction}
-      RetentionInDays: 3653
+      LogGroupName: !Sub /aws/lambda/${ApiLambdaFunction}
+      RetentionInDays: 30
 
 Outputs:
   FunctionUrl:
-    Value: !Sub ${TargetFunctionUrl.FunctionUrl}
-    Export:
-      Name: TargetFunctionUrl
+    Description: "API Root URL"
+    Value: !Sub "https://${ApiGatewayRestApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/"

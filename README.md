@@ -67,7 +67,7 @@ py -m pip install -r src\requirements.txt
 bat\_aws_sam_deploy.bat
 ```
 
-2.実行完了後にコマンドラインに下記のような表示がされ、</br>
+2.実行が成功した場合、コマンドラインに下記のような表示がされ、</br>
 <span style="color: red; ">Value</span>に表示されているURLがAPIのルートURLとなる。
 ```
 (略)
@@ -77,7 +77,7 @@ Outputs
 ---------------------------------------------------------------------------------------------------------------------
 Key                 FunctionUrl
 Description         -
-Value               https://***.lambda-url.(リージョン).on.aws/
+Value               https://***.execute-api.(リージョン).amazonaws.com/(ステージ)/
 ---------------------------------------------------------------------------------------------------------------------
 Successfully created/updated stack - Epaper-apl-server-apim in (リージョン)
 ```
@@ -212,6 +212,7 @@ HTTPステータスコード : `200 OK`</br>
       {
         "id": "画像ID",
         "convertible": Epaper画像フォーマット変換可能状態(undetermined: 未判定, enabled: 変換可能, invalid: 変換不可),
+        "last_modified" : "最終更新日時(ex: 2024/01/01 12:34:56)",
         "url": "画像ダウンロード用署名付きURL"
       }
     ]
@@ -325,18 +326,38 @@ HTTPステータスコード : `200 OK`</br>
 <p align="right">(<a href="#top">トップへ</a>)</p>
 
 ## トラブルシューティング
-### 画像アップロード/ダウンロード先S3バケット名を変更したい
-src\samconfig.toml ファイルに下記設定を追加する。
+### 各種設定を変更したい
+src\samconfig.toml ファイルに下記設定を追加する。</br>
 ```src\samconfig.toml:toml
 [default.deploy.parameters]
 (略)
-parameter_overrides="AwsS3Bucket=(S3バケット名を設定)"
+parameter_overrides="StageName=(デプロイするステージ名) AwsS3Bucket=(画像アップロード/ダウンロード先S3バケット名) ApiKeyName=(APIキー名) LogLevel=(ログ出力レベル(0以下または数値以外:出力しない))"
 ```
+※ルートフォルダでコマンドラインを起動し、python仮想環境を起動した上で下記のコマンドを実行することでも設定の変更が行える。
+```dos
+cd src
+sam deploy --guided
+```
+※設定を変更しない場合は、項目自体を削除する。</br>
+　ex:ログ出力レベルの設定だけを変更したい場合
+```src\samconfig.toml:toml
+[default.deploy.parameters]
+(略)
+parameter_overrides="LogLevel=(ログ出力レベル(0以下または数値以外:出力しない))"
+```
+各種設定項目は下記のとおりである。</br>
+| 項目名 | 設定内容 | デフォルト値 |
+| :--- | :--- | :--- |
+| StageName | ステージ名 | dev |
+| AwsS3Bucket | 画像アップロード/ダウンロード先S3バケット名 | 5.65-epaper-app-serever-assets |
+| ApiKeyName | APIキー名 | RestApiKey |
+| LogLevel | ログ出力レベル</br>(0以下または数値以外:出力しない) | 10 |
 
 ### デプロイに失敗する
-しばらく時間をおいてからデプロイを行う。</br>
+- srcフォルダ以下に余分なファイルが存在していないか確認し、存在していた場合は余分なファイルを削除してからデプロイを実行する。</br>
+- しばらく時間をおいてからデプロイを行う。</br>
 時間をおいてもデプロイに失敗する場合、[【参考】デプロイした環境一式を削除したい場合](#3参考デプロイした環境一式を削除したい場合) を参考に、</br>
-AWS状の環境一式を削除したうえでデプロイを行う。</br>
+AWS状の環境一式を削除したうえでデプロイを実行する。</br>
 <span style="color: red; ">**※削除を行うとAPIのルートURLが変更される。**</span>
 
 ### ローカルで動作確認を行いたい
