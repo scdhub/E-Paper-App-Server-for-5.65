@@ -15,10 +15,18 @@ Parameters:
     Type: String
     Default: RestApiKey
     Description: APIキー名
+  Prefix:
+    Type: String
+    Default: "images/"
+    Description: 通知対象のファイルのPrefix(フォルダ等)
+  ImageMngDbTableName:
+    Type: String
+    Default: Image-ID-URL-mng
+    Description: 画像IDとURL管理DynamoDBテーブル名
   LogLevel:
     Type: String
     Default: "10"
-    Description: ログ出力レベル(0以下または数値以外:出力しない)
+    Description: ログ出力レベル(0以下 または 数値以外:出力しない)
 
 Resources:
   # AmazonAPIGatewayリソースとメソッドのコレクション
@@ -38,13 +46,12 @@ Resources:
       CodeUri: ./
       Handler: app.lambda_handler
       Runtime: python3.12
-      Policies:
-        # S3アクセス許可
-        - S3CrudPolicy:
-            BucketName: !Sub ${AwsS3Bucket}
+      Timeout: 30
+      Role: !GetAtt LambdaIAMRole.Arn
       Environment:
         Variables:
           AWS_S3_BUCKET: !Sub ${AwsS3Bucket}
+          AWS_DYNAMODB_IMAGE_MNG_TABLE_NAME: !Sub ${ImageMngDbTableName}
           LOG_LEVEL: !Sub ${LogLevel}
       Events:
         ApiProxy:
@@ -53,6 +60,57 @@ Resources:
             Path: '/{proxy+}'
             Method: ANY
             RestApiId: !Ref ApiGatewayRestApi
+
+  # IAMロール
+  LambdaIAMRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AmazonS3FullAccess'
+        - 'arn:aws:iam::aws:policy/AmazonRekognitionFullAccess'
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:GetBucketNotification'
+                  - 's3:PutBucketNotification'
+                Resource: !Sub 'arn:aws:s3:::${AwsS3Bucket}'
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: 'arn:aws:logs:*:*:*'
+              - Effect: "Allow"
+                Action:
+                  - "dynamodb:ListTables"
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - 'dynamodb:CreateTable'
+                  - 'dynamodb:DeleteTable'
+                  - 'dynamodb:DescribeTable'
+                  - 'dynamodb:Scan'
+                  - 'dynamodb:Query'
+                  - 'dynamodb:GetItem'
+                  - 'dynamodb:PutItem'
+                  - 'dynamodb:UpdateItem'
+                  - 'dynamodb:DeleteItem'
+                  - 'dynamodb:BatchWriteItem'
+                Resource: !Sub 'arn:aws:dynamodb:*:*:table/${ImageMngDbTableName}'
 
   # APIキー
   RestApiKey:
@@ -97,12 +155,138 @@ Resources:
       KeyType: API_KEY
       UsagePlanId: !Ref ApiUsagePlan
 
-  # ロググループ
+  # ルーティング処理関数のロググループ
   FunctionLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub /aws/lambda/${ApiLambdaFunction}
       RetentionInDays: 30
+
+  # S3からの通知を受け取るLambda
+  S3NotificationLambdaFunction:
+    Type: 'AWS::Serverless::Function'
+    DependsOn: LambdaIAMRole
+    Properties:
+      CodeUri: ./
+      Handler: s3_object_put_handler.lambda_handler
+      Role: !GetAtt LambdaIAMRole.Arn
+      Runtime: python3.12
+      Timeout: 5
+      Environment:
+        Variables:
+          AWS_S3_BUCKET: !Sub ${AwsS3Bucket}
+          AWS_DYNAMODB_IMAGE_MNG_TABLE_NAME: !Sub ${ImageMngDbTableName}
+          LOG_LEVEL: !Sub ${LogLevel}
+
+  # S3からの通知を受け取るLambdaのロググループ
+  S3NotificationLambdaFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    DependsOn: LambdaIAMRole
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${S3NotificationLambdaFunction}
+      RetentionInDays: 30
+
+  # S3からの通知を受け取るLambdaの使用許可
+  LambdaInvokePermission:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      FunctionName: !GetAtt S3NotificationLambdaFunction.Arn
+      Action: 'lambda:InvokeFunction'
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref 'AWS::AccountId'
+      SourceArn: !Sub 'arn:aws:s3:::${AwsS3Bucket}'
+
+  # S3通知を設定するLambda
+  CustomResourceLambdaFunction:
+    Type: 'AWS::Lambda::Function'
+    DependsOn: LambdaIAMRole
+    Properties:
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaIAMRole.Arn
+      Code:
+        ZipFile: |
+
+            from datetime import datetime
+            from logging import getLogger, Logger
+            import json
+            import boto3
+            import cfnresponse
+
+            LOGGER:Logger = getLogger(__name__)
+            LOGGER.setLevel(10)
+
+            LOGGER.info(f'{datetime.now().strftime("%Y/%m/%d %H:%M:%S.%f")[:-3]}\tLoading function')
+            s3 = boto3.resource('s3')
+
+            def lambda_handler(event, context):
+                LOGGER.info(f'{datetime.now().strftime("%Y/%m/%d %H:%M:%S.%f")[:-3]}\t[lambda_handler::Enter]Received event:{json.dumps(event, indent=2)}')
+                responseData={}
+                try:
+                    LOGGER.info(f'{datetime.now().strftime("%Y/%m/%d %H:%M:%S.%f")[:-3]}\t[lambda_handler]Request Type:{event.get("RequestType", "(unknown)")}')
+                    if event['RequestType'] == 'Delete':
+                        Bucket=event['ResourceProperties']['Bucket']
+                        delete_notification(Bucket)
+                        LOGGER.info("Sending response to custom resource after Delete")
+                    elif event['RequestType'] == 'Create' or event['RequestType'] == 'Update':
+                        LambdaArn=event['ResourceProperties']['LambdaArn']
+                        Bucket=event['ResourceProperties']['Bucket']
+                        Prefix=event['ResourceProperties']['Prefix']
+                        add_notification(LambdaArn, Bucket, Prefix)
+                        responseData={'Bucket':Bucket}
+                        LOGGER.info("Sending response to custom resource")
+                    responseStatus = 'SUCCESS'
+                except Exception as e:
+                    LOGGER.info('Failed to process:', e)
+                    responseStatus = 'FAILED'
+                    responseData = {'Failure': 'Something bad happened.'}
+                cfnresponse.send(event, context, responseStatus, responseData)
+                LOGGER.info(f'{datetime.now().strftime("%Y/%m/%d %H:%M:%S.%f")[:-3]}\t[lambda_handler::Leave]responseStatus:{responseStatus}')
+
+            def add_notification(LambdaArn, Bucket, Prefix):
+                bucket_notification = s3.BucketNotification(Bucket)
+                response = bucket_notification.put(
+                  NotificationConfiguration={
+                    'LambdaFunctionConfigurations': [
+                      {
+                          'LambdaFunctionArn': LambdaArn,
+                          'Events': [
+                              's3:ObjectCreated:*'
+                          ],
+                          'Filter': {'Key': {'FilterRules': [
+                            {'Name': 'Prefix', 'Value': Prefix}
+                          ]}}
+                      }
+                    ]
+                  }
+                )
+                LOGGER.info(f'{datetime.now().strftime("%Y/%m/%d %H:%M:%S.%f")[:-3]}\tPut request completed....')
+
+            def delete_notification(Bucket):
+                bucket_notification = s3.BucketNotification(Bucket)
+                response = bucket_notification.put(
+                    NotificationConfiguration={}
+                )
+                LOGGER.info(f'{datetime.now().strftime("%Y/%m/%d %H:%M:%S.%f")[:-3]}\tDelete request completed....')
+      Runtime: python3.12
+      Timeout: 30
+
+  # ロググループ
+  CustomResourceLambdaFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    DependsOn: LambdaIAMRole
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${CustomResourceLambdaFunction}
+      RetentionInDays: 30
+
+  # S3通知の設定
+  LambdaTrigger:
+    Type: 'Custom::LambdaTrigger'
+    DependsOn: LambdaInvokePermission
+    Properties:
+      ServiceToken: !GetAtt CustomResourceLambdaFunction.Arn
+      LambdaArn: !GetAtt S3NotificationLambdaFunction.Arn
+      Bucket: !Ref AwsS3Bucket
+      Prefix: !Ref Prefix
 
 Outputs:
   FunctionUrl:

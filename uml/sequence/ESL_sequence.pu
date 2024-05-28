@@ -47,16 +47,14 @@ note over user
     のいずれかに遷移
 end note
 
-aws_s3 ->> aws_lambda ++ : ファイルアップロードイベント()
-aws_lambda -> aws_s3 ++ : フォルダ内ファイル名一覧取得\n()
-aws_lambda <-- aws_s3 -- : フォルダ内ファイル名一覧取得 応答\n(フォルダ内ファイル名一覧)
-loop S3フォルダ内ファイル数
+aws_s3 ->> aws_lambda ++ : ファイルアップロードイベント(アップロードファイルパス)
+critical hash-table更新
     opt 内部変数(hash-table)に画像ファイルパスが無い
         aws_lambda -> aws_lambda : 内部変数(hash-table)更新
+        aws_lambda -> hash_table : DB更新
     end
-end
 deactivate aws_lambda
-aws_lambda -> hash_table : DB更新
+end
 
 
 == 配信用画像を一覧表示 ==

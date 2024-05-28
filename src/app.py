@@ -7,7 +7,7 @@ from module.logger_wrapper import cLoggerWrapper
 
 ENV_MNG = cEnvMng()
 LOGGER_WRAPPER:cLoggerWrapper = cLoggerWrapper(LEVEL=ENV_MNG.LOG_LEVEL)
-AWS_MNG = cAwsAccessMng(REGION_NAME=ENV_MNG.AWS_REGION, S3_BUCKET=ENV_MNG.AWS_S3_BUCKET, LOGGER_WRAPPER=LOGGER_WRAPPER)
+AWS_MNG = cAwsAccessMng(REGION_NAME=ENV_MNG.AWS_REGION, S3_BUCKET=ENV_MNG.AWS_S3_BUCKET, DYNAMO_DB_IMAGE_MNG_TABLE_NAME=ENV_MNG.AWS_DYNAMODB_IMAGE_MNG_TABLE_NAME, LOGGER_WRAPPER=LOGGER_WRAPPER)
 app = APIGatewayRestResolver()
 AWS_MNG.initialize()
 
@@ -37,7 +37,7 @@ def update_table() -> tuple[dict[str, str], int]:
     """
     LOGGER_WRAPPER.output(f'', PREFIX='::Enter')
     RESULT_DATAS:dict[str, str] = {cCommonFunc.API_RESP_DICT_KEY_RESULT:''}
-    STATUS = AWS_MNG.update_hash_table(API_RESULT_DATAS=RESULT_DATAS)
+    STATUS = AWS_MNG.force_update_image_mng_hash_table(API_RESULT_DATAS=RESULT_DATAS)
     _set_api_result_msg(STATUS_CODE=STATUS, RESULT_DATAS=RESULT_DATAS)
     LOGGER_WRAPPER.output(f'RESULT_DATAS:{RESULT_DATAS}, STATUS:{STATUS}', PREFIX='::Leave')
     return RESULT_DATAS, STATUS

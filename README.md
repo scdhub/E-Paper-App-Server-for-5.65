@@ -18,6 +18,7 @@
 ││└(※app.pyが参照する自作モジュール格納フォルダ)
 │├app.py
 │├requirements.txt
+│├s3_object_put_handler.py
 │├samconfig.toml
 │└template.yaml
 ├uml
@@ -56,6 +57,9 @@ py -m pip install -r src\requirements.txt
 1. [AWS CLI をインストールする](https://docs.aws.amazon.com/ja_jp/cli/latest/userguide/cli-configure-files.html)
 1. [AWS CLI に IAM ユーザーの認証情報を設定する](https://docs.aws.amazon.com/ja_jp/cli/latest/userguide/cli-configure-files.html)
 
+#### Dockerインストール
+[Dockerのインストールを行う。](https://docs.aws.amazon.com/ja_jp/serverless-application-model/latest/developerguide/install-docker.html)
+
 #### デプロイ手順
 ※(python仮想環境を立ち上げていない場合、)ルートフォルダでコマンドラインを起動し、下記コマンドでpython仮想環境を起動する。
 ```dos
@@ -76,7 +80,7 @@ CloudFormation outputs from deployed stack
 Outputs
 ---------------------------------------------------------------------------------------------------------------------
 Key                 FunctionUrl
-Description         -
+Description         API Root URL
 Value               https://***.execute-api.(リージョン).amazonaws.com/(ステージ)/
 ---------------------------------------------------------------------------------------------------------------------
 Successfully created/updated stack - Epaper-apl-server-apim in (リージョン)
@@ -95,6 +99,7 @@ Successfully created/updated stack - Epaper-apl-server-apim in (リージョン)
 
 python仮想環境起動状態で、ルートフォルダから下記コマンドを実行する。
 ```dos
+cd src
 sam delete --no-prompts
 ```
 
@@ -331,7 +336,7 @@ src\samconfig.toml ファイルに下記設定を追加する。</br>
 ```src\samconfig.toml:toml
 [default.deploy.parameters]
 (略)
-parameter_overrides="StageName=(デプロイするステージ名) AwsS3Bucket=(画像アップロード/ダウンロード先S3バケット名) ApiKeyName=(APIキー名) LogLevel=(ログ出力レベル(0以下または数値以外:出力しない))"
+parameter_overrides="StageName=(デプロイするステージ名) AwsS3Bucket=(画像アップロード/ダウンロード先S3バケット名) ApiKeyName=(APIキー名) ImageMngDbTableName=(画像IDとURL管理DynamoDBテーブル名) LogLevel=(ログ出力レベル(0以下または数値以外:出力しない))"
 ```
 ※ルートフォルダでコマンドラインを起動し、python仮想環境を起動した上で下記のコマンドを実行することでも設定の変更が行える。
 ```dos
@@ -351,13 +356,14 @@ parameter_overrides="LogLevel=(ログ出力レベル(0以下または数値以�
 | StageName | ステージ名 | dev |
 | AwsS3Bucket | 画像アップロード/ダウンロード先S3バケット名 | 5.65-epaper-app-serever-assets |
 | ApiKeyName | APIキー名 | RestApiKey |
+| ImageMngDbTableName | 画像IDとURL管理DynamoDBテーブル名 | Image-ID-URL-mng |
 | LogLevel | ログ出力レベル</br>(0以下または数値以外:出力しない) | 10 |
 
 ### デプロイに失敗する
 - srcフォルダ以下に余分なファイルが存在していないか確認し、存在していた場合は余分なファイルを削除してからデプロイを実行する。</br>
 - しばらく時間をおいてからデプロイを行う。</br>
 時間をおいてもデプロイに失敗する場合、[【参考】デプロイした環境一式を削除したい場合](#3参考デプロイした環境一式を削除したい場合) を参考に、</br>
-AWS状の環境一式を削除したうえでデプロイを実行する。</br>
+AWS上の環境一式を削除したうえでデプロイを実行する。</br>
 <span style="color: red; ">**※削除を行うとAPIのルートURLが変更される。**</span>
 
 ### ローカルで動作確認を行いたい
