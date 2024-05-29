@@ -1,5 +1,13 @@
 # E-Paper-App-Server-for-5.65
 5.65Epaper向けアプリサーバAPIソース
+<!-- シールド一覧 -->
+<p style="display: inline">
+    <img src="https://img.shields.io/badge/-Python-F2C63C.svg?logo=python&style=flat">
+    <img src="https://img.shields.io/badge/-Amazon%20aws-232F3E.svg?logo=amazon-aws&style=flat">
+    <img src="https://img.shields.io/badge/-Visual%20Studio%20Code-007ACC.svg?logo=visual-studio-code&style=flat">
+    <img src="https://img.shields.io/badge/-Docker-EEE.svg?logo=docker&style=flat">
+    <img src="https://img.shields.io/badge/PlantUML-blueviolet.svg?style=flat">
+</p>
 
 ## 目次
 
@@ -15,7 +23,7 @@
 │└(※ビルドおよびデプロイ用のバッチファイル集)
 ├src
 │├module
-││└(※app.pyが参照する自作モジュール格納フォルダ)
+││└(※app.py, s3_object_put_handler.pyが参照する自作モジュール格納フォルダ)
 │├app.py
 │├requirements.txt
 │├s3_object_put_handler.py
@@ -26,6 +34,7 @@
 ││└ESL_sequence.pu ※シーケンス図
 │└usecase
 │  └ESL_usecase.pu ※ユースケース図
+├_create_env.bat ※デプロイ環境構築用bat
 └README.md ※このファイル
 </pre>
 
@@ -33,16 +42,11 @@
 
 ## 環境構築～AWSデプロイ
 ※AWSデプロイを行う際は環境構築を先に行う必要がある。</br>
-　また、コマンドライン記述の"*.venv*"の箇所は任意のフォルダ名で可。
 
 ### 1.環境構築
 
-ルートフォルダでコマンドラインを起動し、下記コマンドを入力する。
-```dos
-py -m venv .venv
-.venv\Scripts\activate.bat
-py -m pip install -r src\requirements.txt
-```
+ルートフォルダ配下の"_create_env.bat"を実行する</br>
+→本batを実行することで、デプロイに必要なライブラリのインストールおよびpython仮想環境の起動が行われる。</br>
 
 <p align="right">(<a href="#top">トップへ</a>)</p>
 
@@ -86,12 +90,38 @@ Value               https://***.execute-api.(リージョン).amazonaws.com/(ス
 Successfully created/updated stack - Epaper-apl-server-apim in (リージョン)
 ```
 
+#### AWSスタック一覧
+デプロイ成功時にAWSに作成されるスタックは下記のとおりである。</br>
+| タイプ | リソースID | 概要 |
+| :--- | :--- | :--- |
+| AWS::ApiGateway::ApiKey | RestApiKey | 各APIアクセス時に必要なAPIキー |
+| AWS::ApiGateway::Deployment | ApiGatewayRestApiDeployment(ID) | APIのバージョン |
+| AWS::ApiGateway::RestApi | ApiGatewayRestApi | 説明 |
+| AWS::ApiGateway::Stage | ApiGatewayRestApiStage | エンドポイントのバージョン |
+| AWS::ApiGateway::UsagePlan | ApiUsagePlan | APIのリクエスト制限 |
+| AWS::ApiGateway::UsagePlanKey | ApiUsagePlanKey | APIキーとUsagePlan(ApiUsagePlan)の紐づけ |
+| AWS::IAM::Role | LambdaIAMRole | Lambda関数のIAMロール</br>S3・DynamoDB・LogStreamへのアクセス権を付与している |
+| AWS::Lambda::Function | S3NotificationLambdaFunction | S3からの通知を受け取るLambda関数</br>※実行内容:src/s3_object_put_handler.pyに実装 |
+| AWS::Lambda::Function | ApiLambdaFunction | API実行Lambda関数</br>※実行内容:src/app.pyに実装 |
+| AWS::Lambda::Function | CustomResourceLambdaFunction | S3通知を設定するLambda関数</br>※実行内容:src/template.yamlに実装 |
+| AWS::Lambda::Permission | LambdaInvokePermission | S3からの通知を受け取るLambda関数(S3NotificationLambdaFunction)の使用許可 |
+| AWS::Lambda::Permission | ApiLambdaFunctionApiProxyPermissionStage | API実行Lambda関数の使用許可 |
+| AWS::Logs::LogGroup | S3NotificationLambdaFunctionLogGroup | S3からの通知を受け取るLambda関数(S3NotificationLambdaFunction)のロググループ |
+| AWS::Logs::LogGroup | FunctionLogGroup | API実行Lambda関数のロググループ |
+| AWS::Logs::LogGroup | CustomResourceLambdaFunctionLogGroup | S3通知を設定するLambda関数のロググループ |
+| Custom::LambdaTrigger | LambdaTrigger | S3通知の設定 |
+
 <p align="right">(<a href="#top">トップへ</a>)</p>
 
 ---
 
 
 ### 3.【参考】デプロイした環境一式を削除したい場合
+#### AWSマネジメントコンソールを使用する場合
+1. AWSマネジメントコンソールから"CloudFormation"を選択する。
+1. 「削除」ボタンをクリックする。
+
+#### AWSマネジメントコンソールを使用しない場合
 ※(python仮想環境を立ち上げていない場合、)ルートフォルダでコマンドラインを起動し、下記コマンドでpython仮想環境を起動する。
 ```dos
 .venv\Scripts\activate.bat
@@ -115,6 +145,7 @@ URL : `/signed_url`</br>
 httpヘッダー :
 ```text
 Content-Type: application/json
+x-api-key: "APIキー"
 ```
 
 リクエストデータ :
@@ -143,6 +174,16 @@ HTTPステータスコード : `200 OK`</br>
 ```
 
 #### エラー応答
+エラー内容 : APIキー未指定及びAPIキーエラー。</br>
+ステータスコード : `403 Forbidden`</br>
+コンテンツ :
+```json
+{
+    "message": "Forbidden"
+}
+```
+</br>
+
 エラー内容 : リクエストデータが不正(画像ファイルパスリストが0件 or 未指定)。</br>
 ステータスコード : `400 BAD REQUEST`</br>
 コンテンツ :
@@ -170,9 +211,14 @@ HTTPステータスコード : `200 OK`</br>
 
 
 ### 2.テーブル更新要求
-サーバ内のhash-table更新を要求する。</br></br>
+DBを強制的に更新する。</br>
+※画像IDが変更される</br></br>
 URL : `/update_table`</br>
 メソッド : `GET`</br>
+httpヘッダー :
+```text
+x-api-key: "APIキー"
+```
 リクエストデータ : なし
 
 #### 正常応答
@@ -185,6 +231,16 @@ HTTPステータスコード : `200 OK`</br>
 ```
 
 #### エラー応答
+エラー内容 : APIキー未指定及びAPIキーエラー。</br>
+ステータスコード : `403 Forbidden`</br>
+コンテンツ :
+```json
+{
+    "message": "Forbidden"
+}
+```
+</br>
+
 エラー内容 : サーバエラー。</br>
 ステータスコード : `500 INTERNAL SERVER ERROR`</br>
 コンテンツ :
@@ -205,6 +261,10 @@ HTTPステータスコード : `200 OK`</br>
 「画像IDと画像URL」のリストを取得する。</br></br>
 URL : `/images`</br>
 メソッド : `GET`</br>
+httpヘッダー :
+```text
+x-api-key: "APIキー"
+```
 リクエストデータ : なし</br>
 
 #### 正常応答
@@ -225,6 +285,16 @@ HTTPステータスコード : `200 OK`</br>
 ```
 
 #### エラー応答
+エラー内容 : APIキー未指定及びAPIキーエラー。</br>
+ステータスコード : `403 Forbidden`</br>
+コンテンツ :
+```json
+{
+    "message": "Forbidden"
+}
+```
+</br>
+
 エラー内容 : サーバエラー。</br>
 ステータスコード : `500 INTERNAL SERVER ERROR`</br>
 コンテンツ :
@@ -244,6 +314,10 @@ HTTPステータスコード : `200 OK`</br>
 画像IDに対応する画像URLを取得する。</br></br>
 URL : `/image/{id}`</br>
 メソッド : `GET`</br>
+httpヘッダー :
+```text
+x-api-key: "APIキー"
+```
 リクエストデータ : なし</br>
 
 #### 正常応答
@@ -257,6 +331,16 @@ HTTPステータスコード : `200 OK`</br>
 ```
 
 #### エラー応答
+エラー内容 : APIキー未指定及びAPIキーエラー。</br>
+ステータスコード : `403 Forbidden`</br>
+コンテンツ :
+```json
+{
+    "message": "Forbidden"
+}
+```
+</br>
+
 エラー内容 : リクエストデータが不正(画像IDが不存在 or 画像ID未指定)。</br>
 ステータスコード : `400 BAD REQUEST`</br>
 コンテンツ :
@@ -289,6 +373,7 @@ URL : `/image/{id}`</br>
 httpヘッダー :
 ```text
 Content-Type: application/json
+x-api-key: "APIキー"
 ```
 
 リクエストデータ :
@@ -308,6 +393,16 @@ HTTPステータスコード : `200 OK`</br>
 ```
 
 #### エラー応答
+エラー内容 : APIキー未指定及びAPIキーエラー。</br>
+ステータスコード : `403 Forbidden`</br>
+コンテンツ :
+```json
+{
+    "message": "Forbidden"
+}
+```
+</br>
+
 エラー内容 : リクエストデータが不正(画像IDが不存在 or 画像ID未指定)。</br>
 ステータスコード : `400 BAD REQUEST`</br>
 コンテンツ :
@@ -332,7 +427,16 @@ HTTPステータスコード : `200 OK`</br>
 
 ## トラブルシューティング
 ### 各種設定を変更したい
-src\samconfig.toml ファイルに下記設定を追加する。</br>
+src\samconfig.toml ファイルを編集する。</br>
+
+#### スタック名の変更
+```src\samconfig.toml:toml
+[default.deploy.parameters]
+stack_name = "(スタック名を指定)"
+(略)
+```
+
+#### その他のパラメータ
 ```src\samconfig.toml:toml
 [default.deploy.parameters]
 (略)
@@ -373,7 +477,8 @@ localstackを使用することでローカルでの動作確認が可能とな�
 　デプロイ実行前にDockerおよびlocalstackが起動状態にある必要がある。</br>
 localstack上でデプロイを行う際は、python仮想環境起動状態で、ルートフォルダから下記コマンドを実行する。
 ```dos
-sam build
+cd src
+sam build --use-container
 samlocal deploy
 ```
 

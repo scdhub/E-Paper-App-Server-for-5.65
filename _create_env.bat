@@ -15,5 +15,6 @@ call !VENV_DIR!\Scripts\activate.bat
 rem ビルドに必要なライブラリをインストール
 py -m pip install -r .\bat\requirements.txt
 py -m pip install -r .\src\requirements.txt
-pause
-rem exit /b
+rem python仮想環境起動
+start !VENV_DIR!\Scripts\activate.bat
+exit /b
