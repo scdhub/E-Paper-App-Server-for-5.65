@@ -24,12 +24,12 @@
 ├src
 │├module
 ││└(※app.py, s3_object_put_handler.pyが参照する自作モジュール格納フォルダ)
-│├app.py
+│├app.py ※API実行Lambda関数の実装
 │├requirements.txt
-│├s3_object_put_handler.py
+│├s3_object_put_handler.py ※S3からの通知を受け取るLambda関数の実装
 │├samconfig.toml
 │└template.yaml
-├uml
+├uml ※PlantUMLを使用したUML図格納フォルダ
 │├sequence
 ││└ESL_sequence.pu ※シーケンス図
 │└usecase
@@ -45,8 +45,12 @@
 
 ### 1.環境構築
 
+#### Pythonインストール
+[Pythonのインストールを行う。](https://www.python.org/downloads/)
+
+#### ライブラリのインストールおよびPython仮想環境の起動
 ルートフォルダ配下の"_create_env.bat"を実行する</br>
-→本batを実行することで、デプロイに必要なライブラリのインストールおよびpython仮想環境の起動が行われる。</br>
+→本batを実行することで、デプロイに必要なライブラリのインストールおよびPython仮想環境の起動が行われる。</br>
 
 <p align="right">(<a href="#top">トップへ</a>)</p>
 
@@ -65,17 +69,17 @@
 [Dockerのインストールを行う。](https://docs.aws.amazon.com/ja_jp/serverless-application-model/latest/developerguide/install-docker.html)
 
 #### デプロイ手順
-※(python仮想環境を立ち上げていない場合、)ルートフォルダでコマンドラインを起動し、下記コマンドでpython仮想環境を起動する。
+※(Python仮想環境を立ち上げていない場合、)ルートフォルダでコマンドラインを起動し、下記コマンドでPython仮想環境を起動する。
 ```dos
 .venv\Scripts\activate.bat
 ```
 
-1.python仮想環境起動状態で、ルートフォルダから下記コマンドを実行する。
+1. Python仮想環境起動状態で、ルートフォルダから下記コマンドを実行する。
 ```dos
 bat\_aws_sam_deploy.bat
 ```
 
-2.実行が成功した場合、コマンドラインに下記のような表示がされ、</br>
+2. 実行が成功した場合、コマンドラインに下記のような表示がされ、</br>
 <span style="color: red; ">Value</span>に表示されているURLがAPIのルートURLとなる。
 ```
 (略)
@@ -94,20 +98,20 @@ Successfully created/updated stack - Epaper-apl-server-apim in (リージョン)
 デプロイ成功時にAWSに作成されるスタックは下記のとおりである。</br>
 | タイプ | リソースID | 概要 |
 | :--- | :--- | :--- |
-| AWS::ApiGateway::ApiKey | RestApiKey | 各APIアクセス時に必要なAPIキー |
+| AWS::IAM::Role | LambdaIAMRole | Lambda関数のIAMロール</br>S3・DynamoDB・LogStreamへのアクセス権を付与している |
+| AWS::Lambda::Function | ApiLambdaFunction | API実行Lambda関数</br>※実行内容:src/app.pyに実装 |
+| AWS::Lambda::Permission | ApiLambdaFunctionApiProxyPermissionStage | API実行Lambda関数の使用許可 |
+| AWS::Logs::LogGroup | FunctionLogGroup | API実行Lambda関数のロググループ |
 | AWS::ApiGateway::Deployment | ApiGatewayRestApiDeployment(ID) | APIのバージョン |
-| AWS::ApiGateway::RestApi | ApiGatewayRestApi | 説明 |
+| AWS::ApiGateway::RestApi | ApiGatewayRestApi | APIゲートウェイ(ApiLambdaFunctionを発火させる) |
 | AWS::ApiGateway::Stage | ApiGatewayRestApiStage | エンドポイントのバージョン |
+| AWS::ApiGateway::ApiKey | RestApiKey | 各APIアクセス時に必要なAPIキー |
 | AWS::ApiGateway::UsagePlan | ApiUsagePlan | APIのリクエスト制限 |
 | AWS::ApiGateway::UsagePlanKey | ApiUsagePlanKey | APIキーとUsagePlan(ApiUsagePlan)の紐づけ |
-| AWS::IAM::Role | LambdaIAMRole | Lambda関数のIAMロール</br>S3・DynamoDB・LogStreamへのアクセス権を付与している |
 | AWS::Lambda::Function | S3NotificationLambdaFunction | S3からの通知を受け取るLambda関数</br>※実行内容:src/s3_object_put_handler.pyに実装 |
-| AWS::Lambda::Function | ApiLambdaFunction | API実行Lambda関数</br>※実行内容:src/app.pyに実装 |
-| AWS::Lambda::Function | CustomResourceLambdaFunction | S3通知を設定するLambda関数</br>※実行内容:src/template.yamlに実装 |
 | AWS::Lambda::Permission | LambdaInvokePermission | S3からの通知を受け取るLambda関数(S3NotificationLambdaFunction)の使用許可 |
-| AWS::Lambda::Permission | ApiLambdaFunctionApiProxyPermissionStage | API実行Lambda関数の使用許可 |
 | AWS::Logs::LogGroup | S3NotificationLambdaFunctionLogGroup | S3からの通知を受け取るLambda関数(S3NotificationLambdaFunction)のロググループ |
-| AWS::Logs::LogGroup | FunctionLogGroup | API実行Lambda関数のロググループ |
+| AWS::Lambda::Function | CustomResourceLambdaFunction | S3通知を設定するLambda関数</br>※実行内容:src/template.yamlに実装 |
 | AWS::Logs::LogGroup | CustomResourceLambdaFunctionLogGroup | S3通知を設定するLambda関数のロググループ |
 | Custom::LambdaTrigger | LambdaTrigger | S3通知の設定 |
 
@@ -122,12 +126,12 @@ Successfully created/updated stack - Epaper-apl-server-apim in (リージョン)
 1. 「削除」ボタンをクリックする。
 
 #### AWSマネジメントコンソールを使用しない場合
-※(python仮想環境を立ち上げていない場合、)ルートフォルダでコマンドラインを起動し、下記コマンドでpython仮想環境を起動する。
+※(Python仮想環境を立ち上げていない場合、)ルートフォルダでコマンドラインを起動し、下記コマンドでPython仮想環境を起動する。
 ```dos
 .venv\Scripts\activate.bat
 ```
 
-python仮想環境起動状態で、ルートフォルダから下記コマンドを実行する。
+Python仮想環境起動状態で、ルートフォルダから下記コマンドを実行する。
 ```dos
 cd src
 sam delete --no-prompts
@@ -210,53 +214,7 @@ HTTPステータスコード : `200 OK`</br>
 ---
 
 
-### 2.テーブル更新要求
-DBを強制的に更新する。</br>
-※画像IDが変更される</br></br>
-URL : `/update_table`</br>
-メソッド : `GET`</br>
-httpヘッダー :
-```text
-x-api-key: "APIキー"
-```
-リクエストデータ : なし
-
-#### 正常応答
-HTTPステータスコード : `200 OK`</br>
-コンテンツ :
-```json
-{
-    "result": "OK"
-}
-```
-
-#### エラー応答
-エラー内容 : APIキー未指定及びAPIキーエラー。</br>
-ステータスコード : `403 Forbidden`</br>
-コンテンツ :
-```json
-{
-    "message": "Forbidden"
-}
-```
-</br>
-
-エラー内容 : サーバエラー。</br>
-ステータスコード : `500 INTERNAL SERVER ERROR`</br>
-コンテンツ :
-```json
-{
-    "result": "NG",
-    "result_detail": "エラー内容"
-}
-```
-
-<p align="right">(<a href="#top">トップへ</a>)</p>
-
----
-
-
-### 3.画像リスト要求
+### 2.画像リスト要求
 
 「画像IDと画像URL」のリストを取得する。</br></br>
 URL : `/images`</br>
@@ -310,7 +268,7 @@ HTTPステータスコード : `200 OK`</br>
 ---
 
 
-### 4.画像要求
+### 3.画像要求
 画像IDに対応する画像URLを取得する。</br></br>
 URL : `/image/{id}`</br>
 メソッド : `GET`</br>
@@ -366,7 +324,7 @@ HTTPステータスコード : `200 OK`</br>
 ---
 
 
-### 5.画像情報更新
+### 4.画像情報更新
 画像IDのEpaper画像フォーマット変換可能状態を更新する。</br></br>
 URL : `/image/{id}`</br>
 メソッド : `PATCH`</br>
@@ -425,6 +383,52 @@ HTTPステータスコード : `200 OK`</br>
 
 <p align="right">(<a href="#top">トップへ</a>)</p>
 
+### 5.テーブル更新要求※デバッグ用API
+DBを強制的に更新する。</br>
+※画像IDが変更される</br></br>
+URL : `/update_table`</br>
+メソッド : `GET`</br>
+httpヘッダー :
+```text
+x-api-key: "APIキー"
+```
+リクエストデータ : なし
+
+#### 正常応答
+HTTPステータスコード : `200 OK`</br>
+コンテンツ :
+```json
+{
+    "result": "OK"
+}
+```
+
+#### エラー応答
+エラー内容 : APIキー未指定及びAPIキーエラー。</br>
+ステータスコード : `403 Forbidden`</br>
+コンテンツ :
+```json
+{
+    "message": "Forbidden"
+}
+```
+</br>
+
+エラー内容 : サーバエラー。</br>
+ステータスコード : `500 INTERNAL SERVER ERROR`</br>
+コンテンツ :
+```json
+{
+    "result": "NG",
+    "result_detail": "エラー内容"
+}
+```
+
+<p align="right">(<a href="#top">トップへ</a>)</p>
+
+---
+
+
 ## トラブルシューティング
 ### 各種設定を変更したい
 src\samconfig.toml ファイルを編集する。</br>
@@ -442,7 +446,7 @@ stack_name = "(スタック名を指定)"
 (略)
 parameter_overrides="StageName=(デプロイするステージ名) AwsS3Bucket=(画像アップロード/ダウンロード先S3バケット名) ApiKeyName=(APIキー名) ImageMngDbTableName=(画像IDとURL管理DynamoDBテーブル名) LogLevel=(ログ出力レベル(0以下または数値以外:出力しない))"
 ```
-※ルートフォルダでコマンドラインを起動し、python仮想環境を起動した上で下記のコマンドを実行することでも設定の変更が行える。
+※ルートフォルダでコマンドラインを起動し、Python仮想環境を起動した上で下記のコマンドを実行することでも設定の変更が行える。
 ```dos
 cd src
 sam deploy --guided
@@ -473,9 +477,9 @@ AWS上の環境一式を削除したうえでデプロイを実行する。</br>
 ### ローカルで動作確認を行いたい
 localstackを使用することでローカルでの動作確認が可能となる。</br>
 ※Dockerおよびlocalstackをインストールする必要がある。</br>
-　また、python仮想環境に"aws-sam-cli-local"パッケージをインストールする必要があり、</br>
+　また、Python仮想環境に"aws-sam-cli-local"パッケージをインストールする必要があり、</br>
 　デプロイ実行前にDockerおよびlocalstackが起動状態にある必要がある。</br>
-localstack上でデプロイを行う際は、python仮想環境起動状態で、ルートフォルダから下記コマンドを実行する。
+localstack上でデプロイを行う際は、Python仮想環境起動状態で、ルートフォルダから下記コマンドを実行する。
 ```dos
 cd src
 sam build --use-container
