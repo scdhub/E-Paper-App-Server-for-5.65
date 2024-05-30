@@ -23,6 +23,7 @@ class cEnvMng:
         try:
             ret_value += f'AWS_REGION:{self.AWS_REGION}'
             ret_value += f', AWS_S3_BUCKET:{self.AWS_S3_BUCKET}'
+            ret_value += f', AWS_DYNAMODB_IMAGE_MNG_TABLE_NAME:{self.AWS_DYNAMODB_IMAGE_MNG_TABLE_NAME}'
 
             ret_value += f', LOG_LEVEL:{self.LOG_LEVEL}'
         except Exception as e:
@@ -46,6 +47,15 @@ class cEnvMng:
             str: AWS S3バケット名
         """
         return os.getenv('AWS_S3_BUCKET', '')
+
+    @property
+    def AWS_DYNAMODB_IMAGE_MNG_TABLE_NAME(self) -> str:
+        """画像IDとURL管理DynamoDBテーブル名 取得
+
+        Returns:
+            str: 画像IDとURL管理DynamoDBテーブル名
+        """
+        return os.getenv('AWS_DYNAMODB_IMAGE_MNG_TABLE_NAME', '')
 
     @property
     def LOG_LEVEL(self) -> int:

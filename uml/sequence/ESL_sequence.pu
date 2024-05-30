@@ -5,15 +5,15 @@ hide footbox
 actor "ユーザ" as user
 participant "クライアントアプリ" as cltapp
 participant "AWS Lambda" as aws_lambda
+database "画像ID⇔画像URLの紐づけ\n(AWS DynamoDB)" as hash_table
 participant "AWS S3" as aws_s3
-database "hash-table\n画像ID⇔画像URLの紐づけ\n(AWS S3保存)" as hash_table
 database "画像ファイル\n(AWS S3保存)" as imageDatas
 participant "Epaper SDKサーバ" as sdksrv
 participant "Epaper端末" as epaper
 
 == AWS Lambda コールドスタート ==
 note over aws_lambda, imageDatas
-    ※S3へのアクセス設定はLambda側で設定済みとする
+    ※DynamoDBへのアクセス設定はLambda側に設定済みとする
 end note
 [->>aws_lambda ++ : コールドスタート
 aws_lambda -> hash_table : 取得
@@ -26,7 +26,7 @@ user ->> cltapp ++ : カメラ撮影 or\nアルバムから選択 or\nトリミ�
 cltapp -> aws_lambda ++ : 署名付きURL取得\n(アップロード対象画像ファイルパスリスト)
 
 note over aws_lambda, imageDatas
-    ※S3へのアクセス設定はlambda側で設定済みとする
+    ※S3へのアクセス設定はlambda側に設定済みとする
 end note
 loop アップロード対象画像ファイルパスリストの要素数
     aws_lambda -> aws_s3 ++ : 署名付きURL取得\n(画像ファイルパス)
@@ -36,7 +36,7 @@ cltapp <-- aws_lambda -- : 署名付きURL取得 応答\n(ステータスコー�
 
 opt 署名付きURL取得 応答が正常
     loop 追加登録画像数
-        cltapp -> imageDatas : ファイルアップロード\n(画像ファイル ※リサイズ済)
+        cltapp -> imageDatas : ファイルアップロード\n(画像ファイル)
     end
 end
 user <<-- cltapp --
@@ -47,21 +47,16 @@ note over user
     のいずれかに遷移
 end note
 
-aws_s3 ->> aws_lambda ++ : ファイルアップロードイベント()
-aws_lambda -> aws_s3 ++ : フォルダ内ファイル名一覧取得\n()
-aws_lambda <-- aws_s3 -- : フォルダ内ファイル名一覧取得 応答\n(フォルダ内ファイル名一覧)
-loop S3フォルダ内ファイル数
-    opt 内部変数(hash-table)に画像ファイルパスが無い
-        aws_lambda -> aws_lambda : 内部変数(hash-table)更新
-    end
-end
-deactivate aws_lambda
+aws_s3 ->> aws_lambda ++ : ファイルアップロードイベント(アップロードされたファイルパス)
 aws_lambda -> hash_table : DB更新
+deactivate aws_lambda
 
 
 == 配信用画像を一覧表示 ==
 user ->> cltapp ++ : サムネ画像表示画面遷移
 cltapp -> aws_lambda ++ : 画像リスト要求\n()
+aws_lambda -> hash_table : 取得
+aws_lambda <-- hash_table
 cltapp <-- aws_lambda -- : 画像リスト要求 応答\n(ステータスコード, 画像IDに対応する画像URLリスト)
 loop 画像IDに対応する画像URLリスト要素数
     cltapp -> imageDatas ++ : 画像取得\n()
@@ -89,10 +84,7 @@ par
 else
     cltapp ->> aws_lambda ++ : 画像情報更新\n(ID, 画像変換結果)
     user <<-- cltapp --
-    critical hash-table更新
-        aws_lambda -> aws_lambda : 内部変数(hash-table)更新
-        aws_lambda -> hash_table : DB更新
-    end
+    aws_lambda -> hash_table : DB更新
     deactivate aws_lambda
 end
 
