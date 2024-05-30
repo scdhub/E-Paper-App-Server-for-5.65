@@ -9,7 +9,6 @@ ENV_MNG = cEnvMng()
 LOGGER_WRAPPER:cLoggerWrapper = cLoggerWrapper(LEVEL=ENV_MNG.LOG_LEVEL)
 AWS_MNG = cAwsAccessMng(REGION_NAME=ENV_MNG.AWS_REGION, S3_BUCKET=ENV_MNG.AWS_S3_BUCKET, DYNAMO_DB_IMAGE_MNG_TABLE_NAME=ENV_MNG.AWS_DYNAMODB_IMAGE_MNG_TABLE_NAME, LOGGER_WRAPPER=LOGGER_WRAPPER)
 app = APIGatewayRestResolver()
-AWS_MNG.initialize()
 
 @app.post("/signed_url")
 def get_signedurl() -> tuple[dict[str, str|list], int]:

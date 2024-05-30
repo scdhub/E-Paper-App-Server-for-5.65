@@ -38,7 +38,6 @@ class cAwsAccessMng:
         self._s3_bucket_name = S3_BUCKET
         self._db_image_mng_table_name = DYNAMO_DB_IMAGE_MNG_TABLE_NAME
         self._logger_wrapper = LOGGER_WRAPPER
-        self._image_url_hash_tables:list[dict[str, str|int]] = None
         self._s3_client = None
         self._dynamodb_client = None
         self._dynamodb_img_mng_resource = None
@@ -56,7 +55,6 @@ class cAwsAccessMng:
             ret_value += f'REGION_NAME:{self.REGION_NAME}'
             ret_value += f', S3_BUCKET_NAME:{self.S3_BUCKET_NAME}'
             ret_value += f', DYNAMO_DB_IMAGE_MNG_TABLE_NAME:{self.DYNAMO_DB_IMAGE_MNG_TABLE_NAME}'
-            ret_value += f', len(ImageUrlHashTable):{-1 if self.ImageUrlHashTables is None else len(self.ImageUrlHashTables)}'
         except Exception as e:
             self.LOGGER_WRAPPER.output(MSG=f'ret_value:{ret_value}, {type(e).__name__}! {e}', LEVEL=logging.WARN)
         return ret_value
@@ -188,25 +186,6 @@ class cAwsAccessMng:
         return 'hash-table.db'
 
     @property
-    def ImageUrlHashTables(self) -> list[dict[str, str|int]]:
-        """画像ID・画像変換状態・画像URLのhash-tableリスト 取得
-
-        Returns:
-            list[dict[str, str|int]]: 画像ID・画像変換状態・画像URLのhash-tableリスト(ex:[{'id':'abcd...', 'convertible':0, 'url':'http://～'}, ...])
-        """
-        if self._image_url_hash_tables is None:
-            self._image_url_hash_tables = []
-        return self._image_url_hash_tables
-    @ImageUrlHashTables.setter
-    def ImageUrlHashTables(self, value:list[dict[str, str|int]]):
-        """画像ID・画像変換状態・画像URLのhash-tableリスト 設定
-
-        Args:
-            value (list[dict[str, str|int]]): 画像IDとURLのhash-tableリスト(ex:[{'id':'abcd...', 'convertible':0, 'url':'http://～'}, ...])
-        """
-        self._image_url_hash_tables = value
-
-    @property
     def LOGGER_WRAPPER(self) -> cLoggerWrapper:
         """ログ出力管理クラスのインスタンス 取得
 
@@ -216,17 +195,6 @@ class cAwsAccessMng:
         if self._logger_wrapper is None:
             self._logger_wrapper = cLoggerWrapper()
         return self._logger_wrapper
-
-    def initialize(self) -> bool:
-        """初期化処理
-
-        Returns:
-            bool: 成功時はTrue、それ以外はFalse
-        """
-        self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>', PREFIX='::Enter')
-        ret_value = self._set_image_url_hash_table_from_db(IMAGE_HASH_TABLES=self.ImageUrlHashTables)
-        self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>', PREFIX='::Leave')
-        return ret_value
 
     def get_signed_urls_for_put_object(self, IMAGE_FILE_PATHS:list[str], API_RESULT_DATAS:dict[str, str|list], EXPIRATION:int=3600) -> int:
         """ファイルPUT用署名付きURLリストの取得
@@ -283,17 +251,18 @@ class cAwsAccessMng:
         # AWS S3内画像ファイルパス一覧取得 →　S3_IMAGE_FILE_PATHSに設定
         ret_value = self._get_s3_file_lists(API_RESULT_DATAS=API_RESULT_DATAS, IMAGE_FILE_PATHS=S3_IMAGE_FILE_PATHS)
 
+        image_hash_table:list[dict[str, str|int]] = None
         # AWS S3内画像ファイルパス一覧取得成功
         if ret_value == HTTPStatus.OK:
             # hash-tableリストにテーブル追加
-            ret_value = self._append_hash_tables_from_s3(API_RESULT_DATAS=API_RESULT_DATAS, S3_IMAGE_FILE_PATH_DICTS=S3_IMAGE_FILE_PATHS)
+            ret_value, image_hash_table = self._append_hash_tables_from_s3(API_RESULT_DATAS=API_RESULT_DATAS, S3_IMAGE_FILE_PATH_DICTS=S3_IMAGE_FILE_PATHS)
 
         # テーブル追加成功
         if ret_value == HTTPStatus.OK:
             # DB更新
-            ret_value = self._force_update_db_from_hash_table(API_RESULT_DATAS=API_RESULT_DATAS)
+            ret_value = self._force_update_db_from_hash_table(API_RESULT_DATAS=API_RESULT_DATAS, IMAGE_HASH_TABLE=image_hash_table)
 
-        self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, len(S3_IMAGE_FILE_PATHS):{len(S3_IMAGE_FILE_PATHS)}, ret_value:{ret_value}', PREFIX='::Leave')
+        self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, len(S3_IMAGE_FILE_PATHS):{len(S3_IMAGE_FILE_PATHS)}, len(IMAGE_HASH_TABLE):{-1 if image_hash_table is None else len(image_hash_table)}, ret_value:{ret_value}', PREFIX='::Leave')
         return ret_value
 
     def get_images(self, COUNT:int, API_RESULT_DATAS:dict[str, str|list], EXPIRATION:int=3600) -> int:
@@ -483,7 +452,7 @@ class cAwsAccessMng:
         Returns:
             bool: 成功時はTrue、それ以外はFalse
         """
-        ret_value = not IMAGE_HASH_TABLES is None and not self.ImageMngDynamoDbResource is None
+        ret_value = not IMAGE_HASH_TABLES is None
         # hash-tableリストクリア
         if not IMAGE_HASH_TABLES is None: IMAGE_HASH_TABLES.clear()
         # 管理DB(画像IDとURL)が存在する
@@ -611,10 +580,39 @@ class cAwsAccessMng:
                 IMAGE_FILE_PATHS.clear()
                 # S3内のファイル一覧を取得
                 OBJECTS = self.S3_CLIENT.list_objects(Bucket=self.S3_BUCKET_NAME, Prefix=self.S3_PREFIX)
-                if 'Contents' in OBJECTS:
-                    for CONTENT in OBJECTS['Contents']:
-                        if 'Key' in CONTENT and CONTENT['Size'] > 0:
-                            IMAGE_FILE_PATHS.append({cCommonFunc.API_RESP_DICT_KEY_URL:CONTENT['Key'], cCommonFunc.API_RESP_DICT_KEY_LAST_MODIFIED:CONTENT.get("LastModified", "")})
+                '''
+                OBJECTSのデータ例:
+                {
+                    'ResponseMetadata':
+                    {
+                        (レスポンスの定義情報)
+                    },
+                    'IsTruncated': False,
+                    'Marker': '',
+                    'Contents': [
+                        {
+                            'Key': '(ファイルパス)',
+                            'LastModified': datetime.datetime(2024, 5, 30, 3, 40, 35, tzinfo=tzlocal()),
+                            'ETag': '"～"',
+                            'Size': (ファイルサイズ),
+                            'StorageClass': 'STANDARD',
+                            'Owner':
+                            {
+                                'DisplayName': 'webfile',
+                                'ID': '～'
+                            }
+                        },
+                        ...
+                    ],
+                    'Name': '(S3バケット名 ※"self.S3_BUCKET_NAME"の値)',
+                    'Prefix': '(プレフィックス ※"self.S3_PREFIX"の値)',
+                    'MaxKeys': 1000,
+                    'EncodingType': 'url'
+                }
+                '''
+                for CONTENT in OBJECTS.get('Contents', []):
+                    if 'Key' in CONTENT and CONTENT.get('Size', -1) > 0:
+                        IMAGE_FILE_PATHS.append({cCommonFunc.API_RESP_DICT_KEY_URL:CONTENT['Key'], cCommonFunc.API_RESP_DICT_KEY_LAST_MODIFIED:CONTENT.get("LastModified", "")})
             except Exception as e:
                 ret_value = HTTPStatus.INTERNAL_SERVER_ERROR
                 # 例外内容をAPI処理結果詳細に設定
@@ -623,7 +621,7 @@ class cAwsAccessMng:
         self.LOGGER_WRAPPER.output(MSG=f'len(IMAGE_FILE_PATHS):{len(IMAGE_FILE_PATHS)}, ret_value:{ret_value}', PREFIX='::Leave')
         return ret_value
 
-    def _append_hash_tables_from_s3(self, API_RESULT_DATAS:dict[str, str], S3_IMAGE_FILE_PATH_DICTS:list[dict]) -> int:
+    def _append_hash_tables_from_s3(self, API_RESULT_DATAS:dict[str, str], S3_IMAGE_FILE_PATH_DICTS:list[dict]) -> tuple[int, list[dict[str, str|int]]]:
         """画像ID・画像変換状態・画像URLのhash-tableリストにS3画像ファイルパスからテーブルを追加
 
         Args:
@@ -631,51 +629,56 @@ class cAwsAccessMng:
             S3_IMAGE_FILE_PATHS (list[dict]): AWS S3内画像ファイルパスと最終更新日時リスト
 
         Returns:
-            int: httpステータスコード
+            tuple[int, list[dict[str, str|int]]]: [0]:httpステータスコード, [1]:画像ID・画像変換状態・画像URLのhash-tableリスト
         """
-        ret_value = HTTPStatus.OK if not self.ImageUrlHashTables is None and not S3_IMAGE_FILE_PATH_DICTS is None else HTTPStatus.INTERNAL_SERVER_ERROR
+        ret_value = HTTPStatus.OK if not S3_IMAGE_FILE_PATH_DICTS is None else HTTPStatus.INTERNAL_SERVER_ERROR
 
-        # 引数正常
-        if ret_value == HTTPStatus.OK:
+        image_hash_table:list[dict[str, str|int]] = []
+        # 引数正常 かつ DBからデータ取得成功
+        if ret_value == HTTPStatus.OK and self._set_image_url_hash_table_from_db(IMAGE_HASH_TABLES=image_hash_table):
             try:
-                self.ImageUrlHashTables.clear()
+                FILE_PATHS:list[str] = []
                 for FILE_PATH_DICT in S3_IMAGE_FILE_PATH_DICTS:
                     FILE_PATH:str = FILE_PATH_DICT.get(cCommonFunc.API_RESP_DICT_KEY_URL, "")
+                    FILE_PATHS.append(FILE_PATH)
                     LAST_MODIFIED = FILE_PATH_DICT.get(cCommonFunc.API_RESP_DICT_KEY_LAST_MODIFIED, datetime.min)
                     # hash-tableに存在しない画像ファイルパスの場合
-                    if not self._is_exist_value_in_hash_table(KEY=cCommonFunc.API_RESP_DICT_KEY_URL, DST_VALUE=FILE_PATH):
+                    if not self._is_exist_value_in_hash_table(IMAGE_HASH_TABLE=image_hash_table, KEY=cCommonFunc.API_RESP_DICT_KEY_URL, DST_VALUE=FILE_PATH):
                         TABLE:dict[str, str] = {}
                         TABLE[cCommonFunc.API_RESP_DICT_KEY_ID] = str(uuid4())
                         TABLE[cCommonFunc.API_RESP_DICT_KEY_URL] = FILE_PATH
                         TABLE[cCommonFunc.API_RESP_DICT_KEY_LAST_MODIFIED] = LAST_MODIFIED.strftime("%Y/%m/%d %H:%M:%S.%f")[:-3]
                         TABLE[cCommonFunc.API_RESP_DICT_KEY_CONVERTIBLE] = eImageConvertibleKind.UNDETERMINED
-                        self.ImageUrlHashTables.append(TABLE)
+                        image_hash_table.append(TABLE)
+                # S3バケット内に存在するファイルのみ残す
+                image_hash_table = [i for i in image_hash_table if i.get(cCommonFunc.API_RESP_DICT_KEY_URL, '') in FILE_PATHS]
             except Exception as e:
                 ret_value = HTTPStatus.INTERNAL_SERVER_ERROR
                 # 例外内容をAPI処理結果詳細に設定
                 cCommonFunc.set_api_resp_str_msg(API_RESULT_DATAS=API_RESULT_DATAS, VALUE=f'{type(e).__name__}, {e}')
-                self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, len(API_RESULT_DATAS):{-1 if API_RESULT_DATAS is None else len(API_RESULT_DATAS)}, len(S3_IMAGE_FILE_PATH_DICTS):{-1 if S3_IMAGE_FILE_PATH_DICTS is None else len(S3_IMAGE_FILE_PATH_DICTS)}, {type(e).__name__}! {e}', LEVEL=logging.WARN)
+                self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, len(API_RESULT_DATAS):{-1 if API_RESULT_DATAS is None else len(API_RESULT_DATAS)}, len(S3_IMAGE_FILE_PATH_DICTS):{-1 if S3_IMAGE_FILE_PATH_DICTS is None else len(S3_IMAGE_FILE_PATH_DICTS)}, len(image_hash_table):{-1 if image_hash_table is None else len(image_hash_table)}, {type(e).__name__}! {e}', LEVEL=logging.WARN)
         else:
             cCommonFunc.set_api_resp_str_msg(API_RESULT_DATAS=API_RESULT_DATAS, VALUE=f'hash-tables is None or parameter is invalid!\n, len(S3_IMAGE_FILE_PATHS):{-1 if S3_IMAGE_FILE_PATH_DICTS is None else len(S3_IMAGE_FILE_PATH_DICTS)}')
 
-        return ret_value
+        return ret_value, image_hash_table
 
-    def _force_update_db_from_hash_table(self, API_RESULT_DATAS:dict[str, str]) -> int:
+    def _force_update_db_from_hash_table(self, API_RESULT_DATAS:dict[str, str], IMAGE_HASH_TABLE:list[dict[str, str|int]]) -> int:
         """画像IDと画像URL管理DB強制更新(※DBが存在しない場合は新規作成)
 
         Args:
             API_RESULT_DATAS (dict[str, str]): API応答内容dict
+            IMAGE_HASH_TABLE (list[dict[str, str | int]]): 画像ID・画像変換状態・画像URLのhash-tableリスト
 
         Returns:
             int: httpステータスコード
         """
         # ※テーブルを一旦削除する
-        ret_value = HTTPStatus.OK if not self.ImageUrlHashTables is None and self._delete_dynamodb_table_items(TABLE_NAME=self.DYNAMO_DB_IMAGE_MNG_TABLE_NAME) and not self.ImageMngDynamoDbResource is None else HTTPStatus.INTERNAL_SERVER_ERROR
+        ret_value = HTTPStatus.OK if not IMAGE_HASH_TABLE is None and self._delete_dynamodb_table_items(TABLE_NAME=self.DYNAMO_DB_IMAGE_MNG_TABLE_NAME) and not self.ImageMngDynamoDbResource is None else HTTPStatus.INTERNAL_SERVER_ERROR
         if ret_value == HTTPStatus.OK:
             try:
                 DYNAMO_TABLE = self.ImageMngDynamoDbResource.Table(self.DYNAMO_DB_IMAGE_MNG_TABLE_NAME)
                 PUT_RESULTS:list[int] = []
-                for TABLE in self.ImageUrlHashTables:
+                for TABLE in IMAGE_HASH_TABLE:
                     PUT_RESULTS.append(self.putitem_to_dynamodb_image_mng_table(FILE_URL=TABLE.get(cCommonFunc.API_RESP_DICT_KEY_URL, ''), LAST_MODIFIED=TABLE.get(cCommonFunc.API_RESP_DICT_KEY_LAST_MODIFIED, datetime.min.strftime("%Y/%m/%d %H:%M:%S.%f")[:-3]), CONVERTIBLE=TABLE.get(cCommonFunc.API_RESP_DICT_KEY_CONVERTIBLE, eImageConvertibleKind.UNDETERMINED), API_RESULT_DATAS=API_RESULT_DATAS, id=TABLE.get(cCommonFunc.API_RESP_DICT_KEY_ID, str(uuid4())), dynamo_table=DYNAMO_TABLE))
                 ret_value = max(PUT_RESULTS)
             except Exception as e:
@@ -740,21 +743,22 @@ class cAwsAccessMng:
                 self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, ID:{ID}, {type(e).__name__}! {e}', LEVEL=logging.WARN)
         return ret_value
 
-    def _is_exist_value_in_hash_table(self, KEY:str, DST_VALUE:str) -> bool:
+    def _is_exist_value_in_hash_table(self, IMAGE_HASH_TABLE:list[dict[str, str|int]], KEY:str, DST_VALUE:str) -> bool:
         """hash-tableの該当keyに値が存在するかチェック
 
         Args:
+            IMAGE_HASH_TABLE (list[dict[str, str | int]]): 画像ID・画像変換状態・画像URLのhash-tableリスト
             KEY (str): hash-tableキー名
             DST_VALUE (str): 検索対象値
 
         Returns:
             bool: hash-tableの該当keyに値が存在する場合はTrue、それ以外はFalse
         """
-        ret_value = not self.ImageUrlHashTables is None
+        ret_value = not IMAGE_HASH_TABLE is None
         if ret_value:
             try:
-                ret_value = any(DST_VALUE == HASH_TABLE.get(KEY, '') for HASH_TABLE in self.ImageUrlHashTables)
+                ret_value = any(DST_VALUE == HASH_TABLE.get(KEY, '') for HASH_TABLE in IMAGE_HASH_TABLE)
             except Exception as e:
                 ret_value = False
-                self.LOGGER_WRAPPER.output(MSG=f'KEY:{KEY}, DST_VALUE:{DST_VALUE}, {type(e).__name__}! {e}', LEVEL=logging.WARN)
+                self.LOGGER_WRAPPER.output(MSG=f'len(IMAGE_HASH_TABLE):{len(IMAGE_HASH_TABLE)}, KEY:{KEY}, DST_VALUE:{DST_VALUE}, {type(e).__name__}! {e}', LEVEL=logging.WARN)
         return ret_value

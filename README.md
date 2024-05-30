@@ -385,7 +385,6 @@ HTTPステータスコード : `200 OK`</br>
 
 ### 5.テーブル更新要求※デバッグ用API
 DBを強制的に更新する。</br>
-※画像IDが変更される</br></br>
 URL : `/update_table`</br>
 メソッド : `GET`</br>
 httpヘッダー :
