@@ -11,28 +11,19 @@ database "画像ファイル\n(AWS S3保存)" as imageDatas
 participant "Epaper SDKサーバ" as sdksrv
 participant "Epaper端末" as epaper
 
-== AWS Lambda コールドスタート ==
 note over aws_lambda, imageDatas
-    ※DynamoDBへのアクセス設定はLambda側に設定済みとする
+    ※DynamoDB, S3へのアクセス設定はlambda側に設定済みとする
 end note
-[->>aws_lambda ++ : コールドスタート
-aws_lambda -> hash_table : 取得
-aws_lambda <-- hash_table
-aws_lambda -> aws_lambda : 内部変数(hash-table)更新
-[<<--aws_lambda --
 
 == 配信用画像をサーバに登録 ==
 user ->> cltapp ++ : カメラ撮影 or\nアルバムから選択 or\nトリミング画像を選択
 cltapp -> aws_lambda ++ : 署名付きURL取得\n(アップロード対象画像ファイルパスリスト)
 
-note over aws_lambda, imageDatas
-    ※S3へのアクセス設定はlambda側に設定済みとする
-end note
 loop アップロード対象画像ファイルパスリストの要素数
     aws_lambda -> aws_s3 ++ : 署名付きURL取得\n(画像ファイルパス)
-    aws_lambda <-- aws_s3 -- : 署名付きURL取得 応答\n(署名付きURL)
+    aws_lambda <-- aws_s3 -- : 署名付きURL取得 応答\n(アップロード用署名付きURL)
 end
-cltapp <-- aws_lambda -- : 署名付きURL取得 応答\n(ステータスコード, 画像ファイルパスに対応する署名付きURLリスト)
+cltapp <-- aws_lambda -- : 署名付きURL取得 応答\n(ステータスコード, 画像ファイルパスに対応するアップロード用署名付きURLリスト)
 
 opt 署名付きURL取得 応答が正常
     loop 追加登録画像数
@@ -55,9 +46,13 @@ deactivate aws_lambda
 == 配信用画像を一覧表示 ==
 user ->> cltapp ++ : サムネ画像表示画面遷移
 cltapp -> aws_lambda ++ : 画像リスト要求\n()
-aws_lambda -> hash_table : 取得
+aws_lambda -> hash_table : テーブル内アイテム全件取得
 aws_lambda <-- hash_table
-cltapp <-- aws_lambda -- : 画像リスト要求 応答\n(ステータスコード, 画像IDに対応する画像URLリスト)
+loop DBのテーブル内アイテム数
+    aws_lambda -> aws_s3 ++ : 署名付きURL取得\n(IDに対応する画像URL)
+    aws_lambda <-- aws_s3 -- : 署名付きURL取得 応答\n(ダウンロード用署名付きURL)
+end
+cltapp <-- aws_lambda -- : 画像リスト要求 応答\n(ステータスコード, 画像IDに対応するダウンロード用署名付きURLリスト)
 loop 画像IDに対応する画像URLリスト要素数
     cltapp -> imageDatas ++ : 画像取得\n()
     cltapp <-- imageDatas -- : 画像取得 応答\n(画像ファイル)
@@ -73,7 +68,9 @@ end note
 user ->> cltapp ++ : 画像配信
 cltapp -> sdksrv ++ : 画像配信要求\n(画像ID)
 sdksrv -> aws_lambda ++ : 画像要求\n(画像ID)
-sdksrv <-- aws_lambda -- : 画像要求 応答\n(画像URL)
+aws_lambda -> aws_s3 ++ : 署名付きURL取得\n(IDに対応する画像URL)
+aws_lambda <-- aws_s3 -- : 署名付きURL取得 応答\n(ダウンロード用署名付きURL)
+sdksrv <-- aws_lambda -- : 画像要求 応答\n(ダウンロード用署名付きURL)
 sdksrv -> sdksrv : 配信画像準備
 cltapp <-- sdksrv -- : 画像配信要求 応答\n(Epaper画像フォーマット)
 par

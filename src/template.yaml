@@ -85,6 +85,7 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
+                  - 's3:CreateBucket'
                   - 's3:GetBucketNotification'
                   - 's3:PutBucketNotification'
                 Resource: !Sub 'arn:aws:s3:::${AwsS3Bucket}'
