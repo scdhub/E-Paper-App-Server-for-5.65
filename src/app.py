@@ -95,6 +95,23 @@ def update_image_data(ID:str) -> tuple[dict[str, str], int]:
     LOGGER_WRAPPER.output(f'ID:{ID}, RESULT_DATAS:{RESULT_DATAS}, STATUS:{STATUS}', PREFIX='::Leave')
     return RESULT_DATAS, STATUS
 
+@app.delete("/image/<ID>")
+def delete_image(ID:str) -> tuple[dict[str, str], int]:
+    """画像削除要求
+
+    Args:
+        ID (str): 画像ID
+
+    Returns:
+        tuple[dict[str, str], int]: [0]:応答内容dict(ex:{'result':'OK')}, [1]:ステータスコード
+    """
+    LOGGER_WRAPPER.output(f'ID:{ID}', PREFIX='::Enter')
+    RESULT_DATAS:dict[str, str] = {cCommonFunc.API_RESP_DICT_KEY_RESULT:''}
+    STATUS = AWS_MNG.deleteitem_to_dynamodb_image_mng_table(ID=ID, API_RESULT_DATAS=RESULT_DATAS)
+    _set_api_result_msg(STATUS_CODE=STATUS, RESULT_DATAS=RESULT_DATAS)
+    LOGGER_WRAPPER.output(f'ID:{ID}, STATUS:{STATUS}', PREFIX='::Leave')
+    return STATUS
+
 def _set_api_result_msg(STATUS_CODE:int, RESULT_DATAS:dict[str, str]) -> bool:
     """API応答内容dictの"API処理結果"にメッセージを設定
 

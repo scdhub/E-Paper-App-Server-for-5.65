@@ -399,6 +399,34 @@ class cAwsAccessMng:
                 self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, FILE_URL:{FILE_URL}, {type(e).__name__}! {e}', LEVEL=logging.WARN)
         return ret_value
 
+    def deleteitem_to_dynamodb_image_mng_table(self, FILE_URL:str, LAST_MODIFIED:str, API_RESULT_DATAS:dict[str, str], id:str = None, CONVERTIBLE:eImageConvertibleKind = eImageConvertibleKind.UNDETERMINED, dynamo_table = None) -> int:
+        """AWS DynamoDBの画像IDと画像URL管理テーブルからアイテムを削除
+
+        Args:
+            FILE_URL (str): 画像URL
+            LAST_MODIFIED (str): 最終更新日時
+            API_RESULT_DATAS (dict[str, str]): API応答内容dict
+            id (str, optional): 画像ID. Defaults to None.
+            CONVERTIBLE (eImageConvertibleKind, optional): 画像フォーマット変換状態. Defaults to eImageConvertibleKind.UNDETERMINED.
+            dynamo_table (_type_, optional): DynamoDBの画像IDと画像URL管理テーブルのインスタンス. Defaults to None.
+
+        Returns:
+            int: httpステータスコード
+        """
+        ret_value = HTTPStatus.OK if not self.ImageMngDynamoDbResource is None and not cCommonFunc.is_none_or_empty(FILE_URL) else HTTPStatus.INTERNAL_SERVER_ERROR
+        if ret_value == HTTPStatus.OK:
+            try:
+                if id is None: id = str(uuid4())
+                if dynamo_table is None: dynamo_table = self.ImageMngDynamoDbResource.Table(self.DYNAMO_DB_IMAGE_MNG_TABLE_NAME)
+                ITEM = {cCommonFunc.API_RESP_DICT_KEY_ID:id, cCommonFunc.API_RESP_DICT_KEY_URL:FILE_URL, cCommonFunc.API_RESP_DICT_KEY_LAST_MODIFIED:LAST_MODIFIED, cCommonFunc.API_RESP_DICT_KEY_CONVERTIBLE:CONVERTIBLE}
+                dynamo_table.delete_item(Item=ITEM)
+            except Exception as e:
+                ret_value = HTTPStatus.INTERNAL_SERVER_ERROR
+                # 例外内容をAPI処理結果詳細に設定
+                cCommonFunc.set_api_resp_str_msg(API_RESULT_DATAS=API_RESULT_DATAS, VALUE=f'{type(e).__name__}, {e}')
+                self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, FILE_URL:{FILE_URL}, {type(e).__name__}! {e}', LEVEL=logging.WARN)
+        return ret_value
+
     def _create_dynamo_db_table(self, DB_RESOURCE, TABLE_NAME:str = '', KEY_SCHEMA:list[dict] = [], ATTRIBUTE_DEFINITIONS:list[dict] = [], PROVISIONED_THROUGHPUT:dict[str, int] = {}) -> bool:
         """AWS SynamoDBのテーブル作成
 
