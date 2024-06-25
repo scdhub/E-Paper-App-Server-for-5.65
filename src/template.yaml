@@ -88,6 +88,7 @@ Resources:
                   - 's3:CreateBucket'
                   - 's3:GetBucketNotification'
                   - 's3:PutBucketNotification'
+                  - 's3:DeleteObject'
                 Resource: !Sub 'arn:aws:s3:::${AwsS3Bucket}'
               - Effect: Allow
                 Action:
