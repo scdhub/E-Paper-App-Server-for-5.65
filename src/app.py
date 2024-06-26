@@ -116,13 +116,13 @@ def delete_image() -> tuple[dict[str, str], int]:
     # dynamoDB削除処理
     STATUS_2, RESULT_DATAS_2 = AWS_MNG.deleteitem_to_dynamodb_image_mng_table(ids=ids, API_RESULT_DATAS=RESULT_DATAS)
 
-    _set_api_result_delete_msg(STATUS_CODE=STATUS, RESULT_DATAS=RESULT_DATAS)
+    _set_delete_api_result_msg(STATUS_CODE=STATUS, RESULT_DATAS=RESULT_DATAS)
 
     LOGGER_WRAPPER.output(f'IDs:{ids}, RESULT_DATAS:{RESULT_DATAS}, STATUS:{STATUS}', PREFIX='::Leave')
     LOGGER_WRAPPER.output(f'', PREFIX='::Leave')
     return RESULT_DATAS, STATUS
 
-def _set_api_result_delete_msg(STATUS_CODE:int, RESULT_DATAS:dict[str, str|list]) -> bool:
+def _set_delete_api_result_msg(STATUS_CODE:int, RESULT_DATAS:dict[str, str|list]) -> bool:
     """API応答内容dictの"API処理結果"にメッセージを設定(削除用List)
 
     Args:

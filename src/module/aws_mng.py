@@ -420,6 +420,7 @@ class cAwsAccessMng:
 
             # idsを参照してDynamoDBから削除
             try:
+                self.LOGGER_WRAPPER.output(MSG=f'delete_dynamodb_images', PREFIX='::Enter')
                 for id in ids:
                     try:
                         ret_value = HTTPStatus.OK if self._is_exist_id_in_dynamodb_image_mng_table(ID=id) else HTTPStatus.BAD_REQUEST
@@ -446,7 +447,7 @@ class cAwsAccessMng:
                         self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, len(ids):{-1 if ids is None else len(ids)}, ret_value:{ret_value}', PREFIX='::Leave')
                         pass
             
-                self.LOGGER_WRAPPER.output(MSG=f'delete_signed_url', PREFIX='::Leave')
+                self.LOGGER_WRAPPER.output(MSG=f'delete_dynamodb_images', PREFIX='::Leave')
             except Exception as e:
                 ret_value = HTTPStatus.INTERNAL_SERVER_ERROR
                 API_RESULT_DATAS['result'].append('NG')
@@ -645,7 +646,7 @@ class cAwsAccessMng:
         if ret_value == HTTPStatus.OK and self._is_exist_s3_bucket(S3_CLIENT=self.S3_CLIENT, API_RESULT_DATAS=API_RESULT_DATAS):
             if not self.S3_CLIENT is None :
                 try:
-                    self.LOGGER_WRAPPER.output(MSG=f'delete_signed_url', PREFIX='::Enter')
+                    self.LOGGER_WRAPPER.output(MSG=f'delete_object_for_s3backet', PREFIX='::Enter')
                     DB_TABLE = self.ImageMngDynamoDbResource.Table(self.DYNAMO_DB_IMAGE_MNG_TABLE_NAME)
 
                     API_RESULT_DATAS['result'] = []
@@ -686,7 +687,7 @@ class cAwsAccessMng:
                             self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, len(ids):{-1 if ids is None else len(ids)}, EXPIRATION:{EXPIRATION}, ret_value:{ret_value}', PREFIX='::Leave')
                             pass
                     
-                    self.LOGGER_WRAPPER.output(MSG=f'delete_signed_url', PREFIX='::Leave')
+                    self.LOGGER_WRAPPER.output(MSG=f'delete_object_for_s3backet', PREFIX='::Leave')
                 except Exception as e:
                     ret_value = HTTPStatus.INTERNAL_SERVER_ERROR
                     API_RESULT_DATAS['result'].append('NG')
