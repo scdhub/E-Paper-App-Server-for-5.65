@@ -16,6 +16,7 @@ package "Epaper画像書き込み" {
     usecase トリミング画像を登録 as register_trim_image
     usecase 配信用画像をサーバに登録 as register_image
     usecase 配信用画像を一覧表示 as view_images
+    usecase 登録画像の削除 as delete_images
     usecase 画像配信 as stream_image
     usecase BT接続 as connect_bt
     register_camera --|> register_image
@@ -26,16 +27,19 @@ cltapp -- register_camera
 cltapp -- register_album_picture
 cltapp -- register_trim_image
 cltapp -- view_images
+cltapp -- delete_images
 cltapp -- stream_image
 cltapp -- connect_bt
 
 register_image -- aws_lambda
 view_images -- aws_lambda
 stream_image -- aws_lambda
+delete_images -- aws_lambda
 
 view_images -- aws_s3
 register_image -- aws_s3
 stream_image -- aws_s3
+delete_images -- aws_s3
 
 stream_image --- sdksrv
 
