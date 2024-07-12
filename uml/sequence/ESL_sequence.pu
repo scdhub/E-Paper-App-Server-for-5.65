@@ -60,6 +60,22 @@ end
 cltapp -> cltapp : 画像サムネ表示
 user <<-- cltapp --
 
+== 登録画像を複数削除 ==
+user ->> cltapp ++ : サムネ画像表示画面遷移
+cltapp -> aws_lambda ++ : 画像リスト要求\n()
+aws_lambda -> hash_table : テーブル内アイテム全件取得
+aws_lambda <-- hash_table
+loop DBのテーブル内アイテム数
+    aws_lambda -> aws_s3 ++ : 署名付きURL取得\n(IDに対応する画像URL)
+    aws_lambda <-- aws_s3 -- : 署名付きURL取得 応答\n(ダウンロード用署名付きURL)
+end
+cltapp <-- aws_lambda -- : 画像リスト要求 応答\n(ステータスコード, 画像IDに対応するダウンロード用署名付きURLリスト)
+loop 削除対象画像IDに対応するリスト要素数
+    cltapp -> imageDatas ++ : 画像削除\n(画像IDリスト)
+    cltapp <-- imageDatas -- : 画像削除 応答\n()
+end
+cltapp -> cltapp : 画像サムネ表示
+user <<-- cltapp --
 
 == 画像配信 ==
 note over cltapp, epaper

@@ -317,6 +317,7 @@ class cAwsAccessMng:
         if ret_value == HTTPStatus.OK:
             try:
                 DB_TABLE = self.ImageMngDynamoDbResource.Table(self.DYNAMO_DB_IMAGE_MNG_TABLE_NAME)
+                self.LOGGER_WRAPPER.output(MSG=f'DBTABLE:{DB_TABLE}', LEVEL=logging.WARN)
                 TABLE_RESULTS:list[dict] = DB_TABLE.query(KeyConditionExpression=Key(cCommonFunc.API_RESP_DICT_KEY_ID).eq(ID))
                 ITEMS:list[dict] = TABLE_RESULTS.get('Items', [])
                 DATA:dict = ITEMS[0] if not cCommonFunc.is_none_or_empty(ITEMS) else {}
@@ -399,8 +400,66 @@ class cAwsAccessMng:
                 self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, FILE_URL:{FILE_URL}, {type(e).__name__}! {e}', LEVEL=logging.WARN)
         return ret_value
 
+    def deleteitem_to_dynamodb_image_mng_table(self, API_RESULT_DATAS:dict[str, str], ids:list, dynamo_table = None) -> int:
+        """AWS DynamoDBの画像IDと画像URL管理テーブルからアイテムを削除
+
+        Args:
+            API_RESULT_DATAS (dict[str, str]): API応答内容dict
+            ids (list, optional): 画像IDリスト
+            dynamo_table (_type_, optional): DynamoDBの画像IDと画像URL管理テーブルのインスタンス. Defaults to None.
+
+        Returns:
+            int: httpステータスコード
+            list: API出力結果
+        """
+        ret_value = HTTPStatus.OK if not self.ImageMngDynamoDbResource is None else HTTPStatus.INTERNAL_SERVER_ERROR
+        if ret_value == HTTPStatus.OK:
+            API_RESULT_DATAS['result'] = []
+            # 複数IDを受け取り時に一部の不備を検知して400を返す
+            is_warned = False
+
+            # idsを参照してDynamoDBから削除
+            try:
+                self.LOGGER_WRAPPER.output(MSG=f'delete_dynamodb_images', PREFIX='::Enter')
+                for id in ids:
+                    try:
+                        ret_value = HTTPStatus.OK if self._is_exist_id_in_dynamodb_image_mng_table(ID=id) else HTTPStatus.BAD_REQUEST
+                        if ret_value == HTTPStatus.OK:
+                            if dynamo_table is None: dynamo_table = self.ImageMngDynamoDbResource.Table(self.DYNAMO_DB_IMAGE_MNG_TABLE_NAME)
+                            ITEM = {cCommonFunc.API_RESP_DICT_KEY_ID:id}
+                            res = dynamo_table.delete_item(Key=ITEM)
+                            API_RESULT_DATAS['result'].append('OK')
+                            ret_value = HTTPStatus.BAD_REQUEST if is_warned == True else HTTPStatus.OK  
+                        else:
+                            # 入力IDが存在しない場合に発火
+                            is_warned = True
+                            API_RESULT_DATAS['result'].append('NG')
+                            cCommonFunc.set_api_resp_str_msg(API_RESULT_DATAS=API_RESULT_DATAS, VALUE=f'{'An invalid ID was detected.'}')
+                            self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, {'An invalid ID was detected.'}', LEVEL=logging.WARN)
+                    # 不正なIDが入力された際に発火
+                    except (ClientError, IndexError) as e:
+                        is_warned = True
+                        ret_value = HTTPStatus.BAD_REQUEST
+                        API_RESULT_DATAS['result'].append('NG')
+                        # 例外内容をAPI処理結果詳細に設定
+                        cCommonFunc.set_api_resp_str_msg(API_RESULT_DATAS=API_RESULT_DATAS, VALUE=f'{type(e).__name__}, {'An invalid ID was detected.'}')
+                        self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, len(ids):{-1 if ids is None else len(ids)}, {type(e).__name__}! {'An invalid ID was detected.'}', LEVEL=logging.WARN)
+                        self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, len(ids):{-1 if ids is None else len(ids)}, ret_value:{ret_value}', PREFIX='::Leave')
+                        pass
+            
+                self.LOGGER_WRAPPER.output(MSG=f'delete_dynamodb_images', PREFIX='::Leave')
+            except Exception as e:
+                ret_value = HTTPStatus.INTERNAL_SERVER_ERROR
+                API_RESULT_DATAS['result'].append('NG')
+                # 例外内容をAPI処理結果詳細に設定
+                cCommonFunc.set_api_resp_str_msg(API_RESULT_DATAS=API_RESULT_DATAS, VALUE=f'{type(e).__name__}, {e}')
+                self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, {type(e).__name__}! {e}', LEVEL=logging.WARN)
+                self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, ret_value:{ret_value}', PREFIX='::Leave')
+            
+        return ret_value, API_RESULT_DATAS
+
     def _create_dynamo_db_table(self, DB_RESOURCE, TABLE_NAME:str = '', KEY_SCHEMA:list[dict] = [], ATTRIBUTE_DEFINITIONS:list[dict] = [], PROVISIONED_THROUGHPUT:dict[str, int] = {}) -> bool:
-        """AWS SynamoDBのテーブル作成
+        """AWS DynamoDBのテーブル作成
 
         Args:
             DB_RESOURCE (_type_): AWS DynamoDBリソースのインスタンス
@@ -561,6 +620,82 @@ class cAwsAccessMng:
             except Exception as e:
                 self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, CLIENT_METHOD:{CLIENT_METHOD}, EXPIRATION:{EXPIRATION}, OBJECT_KEY:{OBJECT_KEY}, {type(e).__name__}! {e}', LEVEL=logging.WARN)
         return url
+
+    def delete_object_for_S3backet(self, API_RESULT_DATAS:dict[str, str|list], ids:list[str], EXPIRATION:int=3600) -> int:
+        """S3バケット内のオブジェクトを削除する
+
+        Args:
+            API_RESULT_DATAS (dict[str, str|list]): API応答内容dict 
+            ids (list[str]): 削除対象IDキー
+            EXPIRATION (int, optional): 有効期限(単位:秒). Defaults to 3600.
+
+        Returns:
+            int: httpステータスコード
+            list: API出力結果
+        """
+        self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, len(ids):{-1 if ids is None else len(ids)}, EXPIRATION:{EXPIRATION}', PREFIX='::Enter')
+        ret_value = HTTPStatus.OK if not cCommonFunc.is_none_or_empty(ids) else HTTPStatus.BAD_REQUEST if cCommonFunc.is_none_or_empty(ids) else HTTPStatus.INTERNAL_SERVER_ERROR
+        if ret_value != HTTPStatus.OK:
+            # リクエストデータに不正がある旨をAPI処理結果詳細に設定
+            cCommonFunc.set_api_resp_str_msg(API_RESULT_DATAS=API_RESULT_DATAS, VALUE=f'The input image file path list is empty or there is no URL storage location.')
+        elif not self._create_s3_bucket(S3_CLIENT=self.S3_CLIENT, API_RESULT_DATAS=API_RESULT_DATAS):
+            ret_value = HTTPStatus.INTERNAL_SERVER_ERROR
+
+        ret_value = HTTPStatus.OK if not ids is None else HTTPStatus.BAD_REQUEST
+        # バケットが存在する場合
+        if ret_value == HTTPStatus.OK and self._is_exist_s3_bucket(S3_CLIENT=self.S3_CLIENT, API_RESULT_DATAS=API_RESULT_DATAS):
+            if not self.S3_CLIENT is None :
+                try:
+                    self.LOGGER_WRAPPER.output(MSG=f'delete_object_for_s3backet', PREFIX='::Enter')
+                    DB_TABLE = self.ImageMngDynamoDbResource.Table(self.DYNAMO_DB_IMAGE_MNG_TABLE_NAME)
+
+                    API_RESULT_DATAS['result'] = []
+                    TABLE_RESULTS = []
+                    ITEMS = []
+                    DATA = {}
+                    OBJECT = []
+                    # 複数IDを受け取り時に一部の不備を検知して400を返す
+                    is_warned = False
+
+                    # idsを参照してS3バケットから削除
+                    for id in ids:
+                        try:
+                            # リスト初期化
+                            TABLE_RESULTS = list()
+                            ITEMS = list()
+                            DATA.clear()
+                            OBJECT = list()
+                            
+                            ret_value = HTTPStatus.OK if self._is_exist_id_in_dynamodb_image_mng_table(ID=id) else HTTPStatus.BAD_REQUEST
+                            TABLE_RESULTS.append(DB_TABLE.query(KeyConditionExpression=Key(cCommonFunc.API_RESP_DICT_KEY_ID).eq(id)))
+                            ITEMS.append(TABLE_RESULTS[0].get('Items', []))
+                            DATA = ITEMS[0] if not cCommonFunc.is_none_or_empty(ITEMS) else {}
+                            OBJECT.append(DATA[0].get('url', []))
+
+                            res = self.S3_CLIENT.delete_object(Bucket=self.S3_BUCKET_NAME, Key=OBJECT[0])
+                            ret_value = HTTPStatus.OK if res.get('ResponseMetadata', {}).get('HTTPStatusCode', {}) == 204 else HTTPStatus.INTERNAL_SERVER_ERROR
+                            API_RESULT_DATAS['result'].append('OK') if ret_value == HTTPStatus.OK else API_RESULT_DATAS['result'].append('NG')
+                            ret_value = HTTPStatus.BAD_REQUEST if is_warned == True else HTTPStatus.OK
+                        # 不正なIDが入力された際に発火
+                        except (ClientError, IndexError) as e:
+                            is_warned = True
+                            ret_value = HTTPStatus.BAD_REQUEST
+                            API_RESULT_DATAS['result'].append('NG')
+                            # 例外内容をAPI処理結果詳細に設定
+                            cCommonFunc.set_api_resp_str_msg(API_RESULT_DATAS=API_RESULT_DATAS, VALUE=f'{type(e).__name__}, {'An invalid ID was detected.'}')
+                            self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, len(ids):{-1 if ids is None else len(ids)}, EXPIRATION:{EXPIRATION}, {type(e).__name__}! {'An invalid ID was detected.'}', LEVEL=logging.WARN)
+                            self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, len(ids):{-1 if ids is None else len(ids)}, EXPIRATION:{EXPIRATION}, ret_value:{ret_value}', PREFIX='::Leave')
+                            pass
+                    
+                    self.LOGGER_WRAPPER.output(MSG=f'delete_object_for_s3backet', PREFIX='::Leave')
+                except Exception as e:
+                    ret_value = HTTPStatus.INTERNAL_SERVER_ERROR
+                    API_RESULT_DATAS['result'].append('NG')
+                    # 例外内容をAPI処理結果詳細に設定
+                    cCommonFunc.set_api_resp_str_msg(API_RESULT_DATAS=API_RESULT_DATAS, VALUE=f'{type(e).__name__}, {e}')
+                    self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, len(ids):{-1 if ids is None else len(ids)}, EXPIRATION:{EXPIRATION}, {type(e).__name__}! {e}', LEVEL=logging.WARN)
+                    self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, len(ids):{-1 if ids is None else len(ids)}, EXPIRATION:{EXPIRATION}, ret_value:{ret_value}', PREFIX='::Leave')
+        return ret_value, API_RESULT_DATAS
 
     def _get_s3_file_lists(self, API_RESULT_DATAS:dict[str, str], IMAGE_FILE_PATHS:list[dict]) -> int:
         """AWS S3内ファイルパス一覧を取得

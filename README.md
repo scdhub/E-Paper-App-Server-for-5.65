@@ -425,6 +425,63 @@ HTTPステータスコード : `200 OK`</br>
 
 <p align="right">(<a href="#top">トップへ</a>)</p>
 
+### 6.画像情報更新
+画像IDの単体及び複数削除。</br></br>
+URL : `/deletes`</br>
+メソッド : `DELETE`</br>
+httpヘッダー :
+```text
+Content-Type: application/json
+x-api-key: "APIキー"
+```
+
+リクエストデータ :
+```json
+{
+    "ids": ["ID", ...]
+}
+```
+
+#### 正常応答
+HTTPステータスコード : `200 OK`</br>
+コンテンツ :
+```json
+{
+    "result": ["OK", ...]
+}
+```
+
+#### エラー応答
+エラー内容 : APIキー未指定及びAPIキーエラー。</br>
+ステータスコード : `403 Forbidden`</br>
+コンテンツ :
+```json
+{
+    "message": "Forbidden"
+}
+```
+</br>
+
+エラー内容 : リクエストデータが不正(画像IDが不存在 or 画像ID未指定)。</br>
+ステータスコード : `400 BAD REQUEST`</br>
+コンテンツ :
+```json
+{
+    "result": ["NG", ...],
+    "result_detail": "ID is not exist in table!"
+}
+```
+
+エラー内容 : サーバエラー。</br>
+ステータスコード : `500 INTERNAL SERVER ERROR`</br>
+コンテンツ :
+```json
+{
+    "result": "NG",
+    "result_detail": "エラー内容"
+}
+```
+
 ---
 
 

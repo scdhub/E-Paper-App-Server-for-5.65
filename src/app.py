@@ -95,7 +95,47 @@ def update_image_data(ID:str) -> tuple[dict[str, str], int]:
     LOGGER_WRAPPER.output(f'ID:{ID}, RESULT_DATAS:{RESULT_DATAS}, STATUS:{STATUS}', PREFIX='::Leave')
     return RESULT_DATAS, STATUS
 
-def _set_api_result_msg(STATUS_CODE:int, RESULT_DATAS:dict[str, str]) -> bool:
+@app.delete("/deletes")
+def delete_image() -> tuple[dict[str, str], int]:
+    """画像削除要求
+
+    Returns:
+        tuple[dict[str, str], int]: [0]:応答内容dict(ex:{'result':['OK','NG',...])}, [1]:ステータスコード
+    """
+    # リクエストボディからIDリストを取り出す
+    LOGGER_WRAPPER.output(f'', PREFIX='::Enter')
+    JSON_DATA:dict = {} if app.current_event is None or not hasattr(app.current_event, 'json_body') else app.current_event.json_body
+    ids:list[str] = JSON_DATA.get('ids', [])
+
+    LOGGER_WRAPPER.output(f'IDs:{ids}', PREFIX='::Enter')
+    RESULT_DATAS:dict[str, str|list] = {cCommonFunc.API_RESP_DICT_KEY_RESULT:['']}
+    RESULT_DATAS_2:dict[str, str|list] = {cCommonFunc.API_RESP_DICT_KEY_RESULT:['']}
+
+    # S3バケット削除処理
+    STATUS, RESULT_DATAS = AWS_MNG.delete_object_for_S3backet(ids=ids, API_RESULT_DATAS=RESULT_DATAS)
+    # dynamoDB削除処理
+    STATUS_2, RESULT_DATAS_2 = AWS_MNG.deleteitem_to_dynamodb_image_mng_table(ids=ids, API_RESULT_DATAS=RESULT_DATAS)
+
+    _set_delete_api_result_msg(STATUS_CODE=STATUS, RESULT_DATAS=RESULT_DATAS)
+
+    LOGGER_WRAPPER.output(f'IDs:{ids}, RESULT_DATAS:{RESULT_DATAS}, STATUS:{STATUS}', PREFIX='::Leave')
+    LOGGER_WRAPPER.output(f'', PREFIX='::Leave')
+    return RESULT_DATAS, STATUS
+
+def _set_delete_api_result_msg(STATUS_CODE:int, RESULT_DATAS:dict[str, str|list]) -> bool:
+    """API応答内容dictの"API処理結果"にメッセージを設定(削除用List)
+
+    Args:
+        STATUS_CODE (int): httpステータスコード
+        RESULT_DATAS (dict[str, str]): API応答内容dict
+
+    Returns:
+        bool: 成功時はTrue、それ以外はFalse
+    """
+    return cCommonFunc.set_api_resp_str_msg(API_RESULT_DATAS=RESULT_DATAS, VALUE=RESULT_DATAS['result'], KEY=cCommonFunc.API_RESP_DICT_KEY_RESULT)
+
+
+def _set_api_result_msg(STATUS_CODE:int, RESULT_DATAS:dict[str, str|list]) -> bool:
     """API応答内容dictの"API処理結果"にメッセージを設定
 
     Args:
