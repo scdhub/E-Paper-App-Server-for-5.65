@@ -50,7 +50,7 @@ class cAwsAccessMng:
         Returns:
             str: 現在のオブジェクトを表す文字列
         """
-        ret_value = ''
+        ret_value = ''  
         try:
             ret_value += f'REGION_NAME:{self.REGION_NAME}'
             ret_value += f', S3_BUCKET_NAME:{self.S3_BUCKET_NAME}'
@@ -265,41 +265,113 @@ class cAwsAccessMng:
         self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, len(S3_IMAGE_FILE_PATHS):{len(S3_IMAGE_FILE_PATHS)}, len(IMAGE_HASH_TABLE):{-1 if image_hash_table is None else len(image_hash_table)}, ret_value:{ret_value}', PREFIX='::Leave')
         return ret_value
 
-    def get_images(self, COUNT:int, API_RESULT_DATAS:dict[str, str|list], EXPIRATION:int=3600) -> int:
+    def get_images(self, API_RESULT_DATAS:dict[str, str|list], params:dict={}, EXPIRATION:int=3600) -> int:
         """画像リスト取得
 
         Args:
-            COUNT (int): 取得する画像リスト数(0の場合は全件取得)
+            START (int): 表示する画像リストの始点
+            COUNT (int): 表示する画像数
             API_RESULT_DATAS (dict[str, str | list]): API応答内容dict ※本dict内の"data"キー(※cCommonFunc.API_RESP_DICT_KEY_DATA と同値)内に画像IDと画像URLリストが設定される
             EXPIRATION (int, optional): 有効期限(単位:秒). Defaults to 3600.
 
         Returns:
             int: httpステータスコード
         """
-        self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, COUNT:{COUNT}, EXPIRATION:{EXPIRATION}', PREFIX='::Enter')
+        self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, EXPIRATION:{EXPIRATION}', PREFIX='::Enter')
         DATAS:list[dict[str, str]] = None if API_RESULT_DATAS is None else API_RESULT_DATAS.get(cCommonFunc.API_RESP_DICT_KEY_DATA, None)
         IMAGE_HASH_TABLE:list[dict[str, str|int]] = []
-        ret_value = HTTPStatus.OK if COUNT >= 0 and not DATAS is None and self._set_image_url_hash_table_from_db(IMAGE_HASH_TABLES=IMAGE_HASH_TABLE) else HTTPStatus.BAD_REQUEST if COUNT < 0 else HTTPStatus.INTERNAL_SERVER_ERROR
+        ret_value = HTTPStatus.OK if not DATAS is None and self._set_image_url_hash_table_from_db(IMAGE_HASH_TABLES=IMAGE_HASH_TABLE) else HTTPStatus.BAD_REQUEST if START < 0 else HTTPStatus.INTERNAL_SERVER_ERROR
+        # 総件数
+        LENGTH = len(IMAGE_HASH_TABLE)
+        
+        ## クエリパラメータの設定
+        self.LOGGER_WRAPPER.output(MSG=f'params: {params}.', LEVEL=logging.debug)
+        # paramsが存在しない場合(クエリパラメータ自体を入力していない場合)、クエリパラメータの不正とみなして離脱
+        if(params == None):
+            ret_value = HTTPStatus.BAD_REQUEST
+            cCommonFunc.set_api_resp_str_msg(API_RESULT_DATAS=API_RESULT_DATAS, VALUE=f'The query parameters are invalid.')
+            self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, EXPIRATION:{EXPIRATION} The query parameters are invalid.', LEVEL=logging.WARN)
+            return ret_value, LENGTH
+        # START, COUNTが欠けているかを判定し、どちらか(又は両方)が欠けていた場合クエリパラメータの不正とみなして離脱
+        if(params != {}):
+            if(('START' not in params) or ('COUNT' not in params)):
+                ret_value = HTTPStatus.BAD_REQUEST
+                cCommonFunc.set_api_resp_str_msg(API_RESULT_DATAS=API_RESULT_DATAS, VALUE=f'The query parameters are invalid.')
+                self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, EXPIRATION:{EXPIRATION} The query parameters are invalid.', LEVEL=logging.WARN)
+                return ret_value, LENGTH
+        # クエリパラメータに不要な要素が追加されていた場合、クエリパラメータの不正とみなして離脱
+        if(params != None):
+            if(len(params) > 2):
+                ret_value = HTTPStatus.BAD_REQUEST
+                cCommonFunc.set_api_resp_str_msg(API_RESULT_DATAS=API_RESULT_DATAS, VALUE=f'The query parameters are invalid.')
+                self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, EXPIRATION:{EXPIRATION} The query parameters are invalid.', LEVEL=logging.WARN)
+                return ret_value, LENGTH
+        START = None
+        COUNT = None
+        if(params != {}):
+            try:
+                START = int(params['START'])
+                COUNT = int(params['COUNT'])
+            # STARTまたはCOUNTがint以外で挿入された時用の例外処理
+            except Exception as e:
+                ret_value = HTTPStatus.BAD_REQUEST
+                cCommonFunc.set_api_resp_str_msg(API_RESULT_DATAS=API_RESULT_DATAS, VALUE=f'The query parameters are invalid.')
+                self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, EXPIRATION:{EXPIRATION} The query parameters are invalid.', LEVEL=logging.WARN)
+                return ret_value, LENGTH
+            
         if ret_value == HTTPStatus.OK:
             try:
                 DATAS.clear()
-                for TABLE in IMAGE_HASH_TABLE:
-                    URL:str = TABLE.get(cCommonFunc.API_RESP_DICT_KEY_URL, '')
-                    CONVERTIBLE:eImageConvertibleKind = TABLE.get(cCommonFunc.API_RESP_DICT_KEY_CONVERTIBLE, eImageConvertibleKind.UNDETERMINED)
-                    DATAS.append({cCommonFunc.API_RESP_DICT_KEY_ID:TABLE.get(cCommonFunc.API_RESP_DICT_KEY_ID, ''), cCommonFunc.API_RESP_DICT_KEY_URL:self._get_signed_url(S3_CLIENT=self.S3_CLIENT, CLIENT_METHOD='get_object', EXPIRATION=EXPIRATION, OBJECT_KEY=URL), cCommonFunc.API_RESP_DICT_KEY_LAST_MODIFIED:TABLE.get(cCommonFunc.API_RESP_DICT_KEY_LAST_MODIFIED, ""), cCommonFunc.API_RESP_DICT_KEY_CONVERTIBLE:eImageConvertibleKind.get_name_from_value(VALUE=CONVERTIBLE)})
+                # STARTとCOUNTが存在する場合、それぞれに応じた範囲で画像を取得する
+                if (START != None and COUNT != None):
+                    # STARTかCOUNTが0以下の場合、クエリパラメータの不正とみなして離脱
+                    if(START <= 0 or COUNT <= 0):
+                        ret_value = HTTPStatus.BAD_REQUEST
+                        cCommonFunc.set_api_resp_str_msg(API_RESULT_DATAS=API_RESULT_DATAS, VALUE=f'The query parameters are invalid.')
+                        self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, EXPIRATION:{EXPIRATION} The query parameters are invalid.', LEVEL=logging.WARN)
+                        return ret_value, LENGTH
+                    # START+COUNTが総件数を超えた場合
+                    if(START + COUNT > LENGTH):
+                        # STARTが総件数を超える場合、何も返却しない
+                        if(START > LENGTH):
+                            return ret_value, LENGTH
+                        # COUNTが総件数を超える場合、START値以降すべてのデータを取得する
+                        else:
+                            self.LOGGER_WRAPPER.output(MSG=f'HERE1 START: {START}, COUNT: {COUNT}', PREFIX='::Enter')
+                            for i in range(START-1, LENGTH):
+                                TABLE = IMAGE_HASH_TABLE[i]
+                                self.LOGGER_WRAPPER.output(MSG=f'HERE TABLE: {TABLE}, INDEX: {i}', PREFIX='::Enter')
+                                URL:str = TABLE.get(cCommonFunc.API_RESP_DICT_KEY_URL, '')
+                                CONVERTIBLE:eImageConvertibleKind = TABLE.get(cCommonFunc.API_RESP_DICT_KEY_CONVERTIBLE, eImageConvertibleKind.UNDETERMINED)
+                                DATAS.append({cCommonFunc.API_RESP_DICT_KEY_ID:TABLE.get(cCommonFunc.API_RESP_DICT_KEY_ID, ''), cCommonFunc.API_RESP_DICT_KEY_URL:self._get_signed_url(S3_CLIENT=self.S3_CLIENT, CLIENT_METHOD='get_object', EXPIRATION=EXPIRATION, OBJECT_KEY=URL), cCommonFunc.API_RESP_DICT_KEY_LAST_MODIFIED:TABLE.get(cCommonFunc.API_RESP_DICT_KEY_LAST_MODIFIED, ""), cCommonFunc.API_RESP_DICT_KEY_CONVERTIBLE:eImageConvertibleKind.get_name_from_value(VALUE=CONVERTIBLE)})    
+                    else:
+                        self.LOGGER_WRAPPER.output(MSG=f'HERE2 START: {START}, COUNT: {COUNT}', PREFIX='::Enter')
+                        for i in range(START-1, COUNT+START-1):
+                            TABLE = IMAGE_HASH_TABLE[i]
+                            self.LOGGER_WRAPPER.output(MSG=f'HERE TABLE: {TABLE}, INDEX: {i}', PREFIX='::Enter')
+                            URL:str = TABLE.get(cCommonFunc.API_RESP_DICT_KEY_URL, '')
+                            CONVERTIBLE:eImageConvertibleKind = TABLE.get(cCommonFunc.API_RESP_DICT_KEY_CONVERTIBLE, eImageConvertibleKind.UNDETERMINED)
+                            DATAS.append({cCommonFunc.API_RESP_DICT_KEY_ID:TABLE.get(cCommonFunc.API_RESP_DICT_KEY_ID, ''), cCommonFunc.API_RESP_DICT_KEY_URL:self._get_signed_url(S3_CLIENT=self.S3_CLIENT, CLIENT_METHOD='get_object', EXPIRATION=EXPIRATION, OBJECT_KEY=URL), cCommonFunc.API_RESP_DICT_KEY_LAST_MODIFIED:TABLE.get(cCommonFunc.API_RESP_DICT_KEY_LAST_MODIFIED, ""), cCommonFunc.API_RESP_DICT_KEY_CONVERTIBLE:eImageConvertibleKind.get_name_from_value(VALUE=CONVERTIBLE)})    
+                else:
+                    # 画像全取得
+                    for TABLE in IMAGE_HASH_TABLE:
+                        URL:str = TABLE.get(cCommonFunc.API_RESP_DICT_KEY_URL, '')
+                        CONVERTIBLE:eImageConvertibleKind = TABLE.get(cCommonFunc.API_RESP_DICT_KEY_CONVERTIBLE, eImageConvertibleKind.UNDETERMINED)
+                        DATAS.append({cCommonFunc.API_RESP_DICT_KEY_ID:TABLE.get(cCommonFunc.API_RESP_DICT_KEY_ID, ''), cCommonFunc.API_RESP_DICT_KEY_URL:self._get_signed_url(S3_CLIENT=self.S3_CLIENT, CLIENT_METHOD='get_object', EXPIRATION=EXPIRATION, OBJECT_KEY=URL), cCommonFunc.API_RESP_DICT_KEY_LAST_MODIFIED:TABLE.get(cCommonFunc.API_RESP_DICT_KEY_LAST_MODIFIED, ""), cCommonFunc.API_RESP_DICT_KEY_CONVERTIBLE:eImageConvertibleKind.get_name_from_value(VALUE=CONVERTIBLE)})
+                
             except Exception as e:
                 ret_value = HTTPStatus.INTERNAL_SERVER_ERROR
                 # 例外内容をAPI処理結果詳細に設定
                 cCommonFunc.set_api_resp_str_msg(API_RESULT_DATAS=API_RESULT_DATAS, VALUE=f'{type(e).__name__}, {e}')
-                self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, COUNT:{COUNT}, EXPIRATION:{EXPIRATION}, len(DATAS):{-1 if DATAS is None else len(DATAS)}, {type(e).__name__}! {e}', LEVEL=logging.WARN)
+                self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, EXPIRATION:{EXPIRATION}, len(DATAS):{-1 if DATAS is None else len(DATAS)}, {type(e).__name__}! {e}', LEVEL=logging.WARN)
         elif ret_value == HTTPStatus.BAD_REQUEST:
             # リクエストデータに不正がある旨をAPI処理結果詳細に設定
-            cCommonFunc.set_api_resp_str_msg(API_RESULT_DATAS=API_RESULT_DATAS, VALUE=f'COUNT is less than 0!\n\tCOUNT:{COUNT}')
+            cCommonFunc.set_api_resp_str_msg(API_RESULT_DATAS=API_RESULT_DATAS, VALUE=f'START is less than 0!\n\tSTART:{START}')
         else:
             # 内部変数に不正がある旨をAPI処理結果詳細に設定
             cCommonFunc.set_api_resp_str_msg(API_RESULT_DATAS=API_RESULT_DATAS, VALUE=f'hash-tables is None or internal parameter is invalid!\n\tlen(DATAS):{-1 if DATAS is None else len(DATAS)}')
-        self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, COUNT:{COUNT}, EXPIRATION:{EXPIRATION}, len(DATAS):{-1 if DATAS is None else len(DATAS)}, ret_value:{ret_value}', PREFIX='::Leave')
-        return ret_value
+        self.LOGGER_WRAPPER.output(MSG=f'self:<{self}>, EXPIRATION:{EXPIRATION}, len(DATAS):{-1 if DATAS is None else len(DATAS)}, ret_value:{ret_value}', PREFIX='::Leave')
+        return ret_value, LENGTH
 
     def get_signed_urls_for_get_object_to_id(self, ID:str, API_RESULT_DATAS:dict[str, str], EXPIRATION:int=3600) -> int:
         """IDに該当する署名付きURL(画像ダウンロード用)を取得する

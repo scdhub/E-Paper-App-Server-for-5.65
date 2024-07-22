@@ -42,22 +42,36 @@ def update_table() -> tuple[dict[str, str], int]:
     return RESULT_DATAS, STATUS
 
 @app.get("/images")
-@app.get("/images/<COUNT>")
-def get_images(COUNT:int = 0) -> tuple[dict[str, str|list], int]:
+def get_images() -> tuple[dict[str, str|list], int, int]:
     """画像リスト要求
 
-    Args:
-        COUNT (int, optional): 取得する画像リスト数(0の場合は全件取得). Defaults to 0.
+    Returns:
+        tuple[dict[str, str|list], int]: [0]:応答内容dict(ex:{'result':'OK', 'data':[{'id':'abcd...', 'convertible':'undetermined', 'url':'http://～'}, ...]}), [1]:ステータスコード, [2]:総件数
+    """
+    LOGGER_WRAPPER.output(f'', PREFIX='::Enter')
+    RESULT_DATAS:dict[str, str|list] = {cCommonFunc.API_RESP_DICT_KEY_RESULT:'', cCommonFunc.API_RESP_DICT_KEY_DATA:[]}
+    STATUS, LENGTH = AWS_MNG.get_images(API_RESULT_DATAS=RESULT_DATAS)
+    _set_api_result_msg(STATUS_CODE=STATUS, RESULT_DATAS=RESULT_DATAS)
+    LOGGER_WRAPPER.output(f'LENGTH:{LENGTH}')
+    LOGGER_WRAPPER.output(f'RESULT_DATAS.{cCommonFunc.API_RESP_DICT_KEY_RESULT}:{RESULT_DATAS.get(cCommonFunc.API_RESP_DICT_KEY_RESULT, "")}, len(RESULT_DATAS.{cCommonFunc.API_RESP_DICT_KEY_DATA}):{len(RESULT_DATAS.get(cCommonFunc.API_RESP_DICT_KEY_DATA, []))}, STATUS:{STATUS}', PREFIX='::Leave')
+    return RESULT_DATAS, STATUS, LENGTH
+
+@app.get("/images/count")
+def get_images() -> tuple[dict[str, str|list], int, int]:
+    """画像リスト要求
 
     Returns:
-        tuple[dict[str, str|list], int]: [0]:応答内容dict(ex:{'result':'OK', 'data':[{'id':'abcd...', 'convertible':'undetermined', 'url':'http://～'}, ...]}), [1]:ステータスコード
+        tuple[dict[str, str|list], int]: [0]:応答内容dict(ex:{'result':'OK', 'data':[{'id':'abcd...', 'convertible':'undetermined', 'url':'http://～'}, ...]}), [1]:ステータスコード, [2]:総件数
     """
-    LOGGER_WRAPPER.output(f'COUNT:{COUNT}', PREFIX='::Enter')
+    # クエリパラメータから値を抽出
+    
+
     RESULT_DATAS:dict[str, str|list] = {cCommonFunc.API_RESP_DICT_KEY_RESULT:'', cCommonFunc.API_RESP_DICT_KEY_DATA:[]}
-    STATUS = AWS_MNG.get_images(COUNT=COUNT, API_RESULT_DATAS=RESULT_DATAS)
+    STATUS, LENGTH = AWS_MNG.get_images(API_RESULT_DATAS=RESULT_DATAS, params=app.current_event.query_string_parameters)
     _set_api_result_msg(STATUS_CODE=STATUS, RESULT_DATAS=RESULT_DATAS)
-    LOGGER_WRAPPER.output(f'COUNT:{COUNT}, RESULT_DATAS.{cCommonFunc.API_RESP_DICT_KEY_RESULT}:{RESULT_DATAS.get(cCommonFunc.API_RESP_DICT_KEY_RESULT, "")}, len(RESULT_DATAS.{cCommonFunc.API_RESP_DICT_KEY_DATA}):{len(RESULT_DATAS.get(cCommonFunc.API_RESP_DICT_KEY_DATA, []))}, STATUS:{STATUS}', PREFIX='::Leave')
-    return RESULT_DATAS, STATUS
+    LOGGER_WRAPPER.output(f'LENGTH:{LENGTH}')
+    LOGGER_WRAPPER.output(f'RESULT_DATAS.{cCommonFunc.API_RESP_DICT_KEY_RESULT}:{RESULT_DATAS.get(cCommonFunc.API_RESP_DICT_KEY_RESULT, "")}, len(RESULT_DATAS.{cCommonFunc.API_RESP_DICT_KEY_DATA}):{len(RESULT_DATAS.get(cCommonFunc.API_RESP_DICT_KEY_DATA, []))}, STATUS:{STATUS}', PREFIX='::Leave')
+    return RESULT_DATAS, STATUS, LENGTH
 
 @app.get("/image/<ID>")
 def get_image(ID:str) -> tuple[dict[str, str], int]:
@@ -141,6 +155,7 @@ def _set_api_result_msg(STATUS_CODE:int, RESULT_DATAS:dict[str, str|list]) -> bo
     Args:
         STATUS_CODE (int): httpステータスコード
         RESULT_DATAS (dict[str, str]): API応答内容dict
+        (LENGTH): 画像の総件数
 
     Returns:
         bool: 成功時はTrue、それ以外はFalse

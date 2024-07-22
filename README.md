@@ -267,8 +267,72 @@ HTTPステータスコード : `200 OK`</br>
 
 ---
 
+### 3.画像リスト要求(範囲取得)
 
-### 3.画像要求
+「画像IDと画像URL」のリストを範囲取得する。</br></br>
+URL : `/images/count?START={int}&COUNT={int}`</br>
+メソッド : `GET`</br>
+httpヘッダー :
+```text
+x-api-key: "APIキー"
+```
+リクエストデータ : なし</br>
+
+#### 正常応答
+HTTPステータスコード : `200 OK`</br>
+コンテンツ :
+```json
+{
+    "result": "OK",
+    "data": [
+      {
+        "id": "画像ID",
+        "convertible": Epaper画像フォーマット変換可能状態(undetermined: 未判定, enabled: 変換可能, invalid: 変換不可),
+        "last_modified" : "最終更新日時(ex: 2024/01/01 12:34:56)",
+        "url": "画像ダウンロード用署名付きURL"
+      }...
+    ]
+}
+```
+
+#### エラー応答
+エラー内容 : APIキー未指定及びAPIキーエラー。</br>
+ステータスコード : `403 Forbidden`</br>
+コンテンツ :
+```json
+{
+    "message": "Forbidden"
+}
+```
+</br>
+
+エラー内容 : リクエストデータが不正(クエリパラメータが不正)。</br>
+ステータスコード : `400 BAD REQUEST`</br>
+コンテンツ :
+```json
+{
+    "result": "NG",
+    "result_detail": "The query parameters are invalid."
+}
+```
+
+
+エラー内容 : サーバエラー。</br>
+ステータスコード : `500 INTERNAL SERVER ERROR`</br>
+コンテンツ :
+```json
+{
+    "result": "NG",
+    "result_detail": "エラー内容"
+}
+```
+
+<p align="right">(<a href="#top">トップへ</a>)</p>
+
+---
+
+
+### 4.画像要求
 画像IDに対応する画像URLを取得する。</br></br>
 URL : `/image/{id}`</br>
 メソッド : `GET`</br>
@@ -324,7 +388,7 @@ HTTPステータスコード : `200 OK`</br>
 ---
 
 
-### 4.画像情報更新
+### 5.画像情報更新
 画像IDのEpaper画像フォーマット変換可能状態を更新する。</br></br>
 URL : `/image/{id}`</br>
 メソッド : `PATCH`</br>
@@ -383,7 +447,7 @@ HTTPステータスコード : `200 OK`</br>
 
 <p align="right">(<a href="#top">トップへ</a>)</p>
 
-### 5.テーブル更新要求※デバッグ用API
+### 6.テーブル更新要求※デバッグ用API
 DBを強制的に更新する。</br>
 URL : `/update_table`</br>
 メソッド : `GET`</br>
@@ -425,7 +489,7 @@ HTTPステータスコード : `200 OK`</br>
 
 <p align="right">(<a href="#top">トップへ</a>)</p>
 
-### 6.画像情報更新
+### 7.画像削除
 画像IDの単体及び複数削除。</br></br>
 URL : `/deletes`</br>
 メソッド : `DELETE`</br>
