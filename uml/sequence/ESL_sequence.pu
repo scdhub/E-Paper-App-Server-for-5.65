@@ -53,29 +53,78 @@ loop DBのテーブル内アイテム数
     aws_lambda <-- aws_s3 -- : 署名付きURL取得 応答\n(ダウンロード用署名付きURL)
 end
 cltapp <-- aws_lambda -- : 画像リスト要求 応答\n(ステータスコード, 画像IDに対応するダウンロード用署名付きURLリスト)
-loop 画像IDに対応する画像URLリスト要素数
-    cltapp -> imageDatas ++ : 画像取得\n()
-    cltapp <-- imageDatas -- : 画像取得 応答\n(画像ファイル)
+opt 画像リスト要求の応答が正常
+    note over cltapp
+        画像URLリストのソート処理
+        (デフォルトは降順)
+    end note
+    alt 総件数が件数閾値よりも少ない
+        note right cltapp
+            総件数:取得した画像URLリストの総数
+            件数閾値：画面に表示する件数
+             (ユーザが選択できる。デフォルトは50件(仮))
+        end note
+        loop 1,総件数
+            cltapp -> imageDatas ++ : 画像取得\n()
+            cltapp <-- imageDatas -- : 画像取得 応答\n(画像ファイル)
+        end
+    else 総件数が件数閾値よりも多い
+        alt 画像一覧の最下段までスワイプされていない
+            loop 1,件数閾値
+                cltapp -> imageDatas ++ : 画像取得\n()
+                cltapp <-- imageDatas -- : 画像取得 応答\n(画像ファイル)
+            end
+        else 画像一覧の最下段までスワイプされる
+            loop 件数閾値*現在ページ数,件数閾値
+                note right cltapp
+                    現在ページ数：次ページが読み込まれたら+1
+                     (デフォルトは1)
+                end note
+                cltapp -> imageDatas ++ : 画像取得\n()
+                cltapp <-- imageDatas -- : 画像取得 応答\n(画像ファイル)
+            end
+        end
+    end
 end
 cltapp -> cltapp : 画像サムネ表示
 user <<-- cltapp --
+note over user
+    * 画像一覧表示(削除モード)
+    に遷移可能
+end note
 
 == 登録画像を複数削除 ==
-user ->> cltapp ++ : サムネ画像表示画面遷移
-cltapp -> aws_lambda ++ : 画像リスト要求\n()
-aws_lambda -> hash_table : テーブル内アイテム全件取得
-aws_lambda <-- hash_table
-loop DBのテーブル内アイテム数
-    aws_lambda -> aws_s3 ++ : 署名付きURL取得\n(IDに対応する画像URL)
-    aws_lambda <-- aws_s3 -- : 署名付きURL取得 応答\n(ダウンロード用署名付きURL)
-end
-cltapp <-- aws_lambda -- : 画像リスト要求 応答\n(ステータスコード, 画像IDに対応するダウンロード用署名付きURLリスト)
+user ->> cltapp ++ : 一覧表示画面遷移
+cltapp -> aws_lambda ++ : 画像リスト削除要求\n(画像IDリスト)
 loop 削除対象画像IDに対応するリスト要素数
-    cltapp -> imageDatas ++ : 画像削除\n(画像IDリスト)
-    cltapp <-- imageDatas -- : 画像削除 応答\n()
+    aws_lambda -> imageDatas ++ : 画像削除\n(画像ID)
+    aws_lambda <-- imageDatas -- : 画像削除 応答\n()
 end
-cltapp -> cltapp : 画像サムネ表示
+cltapp <-- aws_lambda -- : 画像リスト削除要求 応答\n(ステータスコード)
+opt "削除要求 応答が正常"
+    note over cltapp
+        * 削除後の画面更新
+    end note
+    ref over cltapp,aws_s3: 配信用画像を一覧表示
+        ' cltapp -> aws_lambda ++ : 画像リスト要求\n()
+        ' aws_lambda -> hash_table : テーブル内アイテム全件取得
+        ' aws_lambda <-- hash_table
+        ' loop DBのテーブル内アイテム数
+        '     aws_lambda -> aws_s3 ++ : 署名付きURL取得\n(IDに対応する画像URL)
+        '     aws_lambda <-- aws_s3 -- : 署名付きURL取得 応答\n(ダウンロード用署名付きURL)
+        ' end
+        ' cltapp <-- aws_lambda -- : 画像リスト要求 応答\n(ステータスコード, 画像IDに対応するダウンロード用署名付きURLリスト)
+        ' loop 画像IDに対応する画像URLリスト要素数
+        '     cltapp -> imageDatas ++ : 画像取得\n()
+        '     cltapp <-- imageDatas -- : 画像取得 応答\n(画像ファイル)
+        ' end
+end
+' cltapp -> cltapp : 画像サムネ表示
 user <<-- cltapp --
+note over user
+    * 画像一覧表示(配信モード)
+    に遷移可能
+end note
 
 == 画像配信 ==
 note over cltapp, epaper

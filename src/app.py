@@ -63,8 +63,6 @@ def get_images() -> tuple[dict[str, str|list], int, int]:
     Returns:
         tuple[dict[str, str|list], int]: [0]:応答内容dict(ex:{'result':'OK', 'data':[{'id':'abcd...', 'convertible':'undetermined', 'url':'http://～'}, ...]}), [1]:ステータスコード, [2]:総件数
     """
-    # クエリパラメータから値を抽出
-    
 
     RESULT_DATAS:dict[str, str|list] = {cCommonFunc.API_RESP_DICT_KEY_RESULT:'', cCommonFunc.API_RESP_DICT_KEY_DATA:[]}
     STATUS, LENGTH = AWS_MNG.get_images(API_RESULT_DATAS=RESULT_DATAS, params=app.current_event.query_string_parameters)
